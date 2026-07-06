@@ -217,11 +217,11 @@ class AffectiveEngine:
 class EnvelopeParameters(NamedTuple):
     """Synthesis-ready parameters derived from the current PAD state."""
 
-    amplitude: float    # master gain in [0.0, 1.0]
-    frequency_hz: float # fundamental frequency in Hz
-    brightness: float   # spectral brightness / harmonic richness in [0.0, 1.0]
-    attack_ms: float    # attack time in milliseconds
-    release_ms: float   # release time in milliseconds
+    amplitude: float     # master gain in [0.0, 1.0]
+    frequency_hz: float  # fundamental frequency in Hz
+    brightness: float    # spectral brightness / harmonic richness in [0.0, 1.0]
+    attack_ms: float     # attack time in milliseconds
+    release_ms: float    # release time in milliseconds
 
 
 class AudioEnvelopeWrapper:

@@ -32,9 +32,6 @@ logger = logging.getLogger(__name__)
 
 Clearance = Literal["admin", "guest"]
 
-ADMIN_IDS: frozenset[str] = frozenset(
-    filter(None, config.AI_KEY[:0].split(","))  # populated via env in real use
-)
 
 
 @dataclass
