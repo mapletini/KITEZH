@@ -153,6 +153,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--model", metavar="MODEL", default=None)
     parser.add_argument("--agent-id", metavar="ID", default=None)
     parser.add_argument("--health", action="store_true", help="Check remote backend connectivity.")
+    parser.add_argument("--serve", action="store_true", help="Launch the K.A.I. web chat interface.")
+    parser.add_argument("--port", type=int, default=None, metavar="PORT", help="Override the web server port (default: KITEZH_WEB_PORT / 7860).")
     parser.add_argument("--verbose", action="store_true", help="Enable DEBUG-level logging.")
     return parser
 
@@ -162,6 +164,15 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.verbose:
         logging.getLogger().setLevel(logging.DEBUG)
+
+    # ------------------------------------------------------------------
+    # Web chat server mode
+    # ------------------------------------------------------------------
+    if args.serve:
+        from web_ui import start as start_web
+        logger.info("Launching K.A.I. web interface on port %s…", args.port or config.WEB_PORT)
+        start_web(port=args.port)
+        return 0
 
     # ------------------------------------------------------------------
     # Health check mode
