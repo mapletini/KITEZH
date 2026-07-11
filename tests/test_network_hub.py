@@ -22,6 +22,16 @@ class TestNamespaceRouter(unittest.TestCase):
         self.assertEqual(payload.clearance, "admin")
         self.assertFalse(payload.is_puppy)
 
+    def test_namespace_router_assigns_guest_clearance(self) -> None:
+        payload = network_hub.namespace_router(
+            platform="cli",
+            user_id="guest-1",
+            display_name="Guest",
+            content="hello",
+        )
+        self.assertEqual(payload.clearance, "guest")
+        self.assertFalse(payload.is_puppy)
+
     def test_namespace_router_applies_puppy_trap(self) -> None:
         with patch.object(network_hub.config, "DISCORD_PUPPY_ID", "puppy"):
             payload = network_hub.namespace_router(

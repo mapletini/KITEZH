@@ -24,7 +24,9 @@ class TestWebUiSecurity(unittest.TestCase):
         self.assertEqual(ctx.exception.status_code, 503)
 
     def test_require_key_rejects_wrong_key(self) -> None:
-        with patch.object(web_ui.config, "AI_KEY", "correct-key"):
+        with patch.object(web_ui.config, "AI_KEY", "correct-key"), patch.object(
+            web_ui.config, "INSECURE_AI_KEYS", ("changeme", "", "change_me_ai_bridge_secret")
+        ):
             with self.assertRaises(HTTPException) as ctx:
                 web_ui._require_key("wrong-key")
         self.assertEqual(ctx.exception.status_code, 403)
