@@ -37,6 +37,7 @@ AI_KEY: str = _env(
     default="changeme",
 )
 
+#: Sentinel values treated as insecure/unconfigured API keys by bridge and web auth checks.
 INSECURE_AI_KEYS: tuple[str, ...] = ("", "changeme", "change_me_ai_bridge_secret")
 
 #: Secret used to sign command envelopes.

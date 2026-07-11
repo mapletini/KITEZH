@@ -31,6 +31,7 @@ K.A.I. is completely isolated from the remote database schema and web traffic, i
 *   A local LLM backend (e.g., [Ollama](https://ollama.com/) running a Qwen or Llama 3 model, or a [Letta](https://github.com/letta-ai/letta) agent).
 *   A deployed remote API backend to bridge to.
 *   Optional for local audio playback: `sounddevice` (the engine still runs without it).
+    * If it is missing, interactive mode still works and logs a warning while skipping speaker output.
 
 ### Initialization
 ```bash

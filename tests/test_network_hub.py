@@ -52,6 +52,10 @@ class TestBridgeFailures(unittest.TestCase):
             network_hub.RemoteMochiiBridge(ai_key="changeme")
         self.assertTrue(any("insecure default AI key" in msg for msg in captured.output))
 
+    def test_bridge_rejects_insecure_key_for_non_local_backend(self) -> None:
+        with self.assertRaises(ValueError):
+            network_hub.RemoteMochiiBridge(base_url="https://example.com", ai_key="changeme")
+
     def test_query_context_returns_timeout_error(self) -> None:
         bridge = network_hub.RemoteMochiiBridge(base_url="http://localhost:9999", ai_key="test")
         with patch.object(bridge, "_post", side_effect=ReadTimeout()):

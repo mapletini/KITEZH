@@ -70,6 +70,8 @@ class RemoteMochiiBridge:
             }
         )
         if ai_key in config.INSECURE_AI_KEYS:
+            if not self._base_url.startswith(("http://localhost", "https://localhost", "http://127.0.0.1", "https://127.0.0.1")):
+                raise ValueError("Refusing insecure default AI key for non-local remote backend.")
             logger.warning("Bridge running with an insecure default AI key; set KITEZH_AI_KEY.")
 
     # ------------------------------------------------------------------
@@ -127,13 +129,12 @@ class RemoteMochiiBridge:
             "is_puppy": payload.is_puppy,
             "metadata": payload.metadata,
         }
-        url = f"{self._base_url}/api/ai/context"
         try:
             response = self._post("/api/ai/context", json=body)
             response.raise_for_status()
             return ContextResponse(success=True, data=response.json())
         except ReadTimeout:
-            msg = f"Request to {url} timed out after {self._timeout}s"
+            msg = f"Request to {self._base_url}/api/ai/context timed out after {self._timeout}s"
             logger.warning(msg)
             return ContextResponse(success=False, error=msg)
         except ConnectionError as exc:
