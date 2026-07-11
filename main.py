@@ -1,5 +1,6 @@
 """
-main.py — Entry point for the Kitezh intelligence engine.
+main.py — Entry point for the Kitezh intelligence engine, now fully equipped 
+with a deep cognitive BDI brain, neurochemical core, and audio synthesizer!
 
 Usage
 -----
@@ -9,18 +10,7 @@ Start the engine in interactive mode (no init file)::
 
 Feed an initialization markdown file to a local LLM backend::
 
-    # Ollama (default)
     python main.py --init docs/system_prompt.md
-
-    # Letta backend
-    python main.py --init docs/system_prompt.md --backend letta
-
-    # Override model
-    python main.py --init docs/system_prompt.md --model mistral
-
-The ``--init`` flag reads the supplied Markdown file and passes its contents
-directly to the configured LLM backend runtime (Ollama or Letta) so the agent
-can be seeded with a rich context document before accepting live messages.
 """
 
 from __future__ import annotations
@@ -33,9 +23,20 @@ from typing import Any
 
 import requests
 
+try:
+    import sounddevice as sd
+except ImportError:
+    sd = None
+    print("Warning: 'sounddevice' module not found. Audio will be disabled. Run 'pip install sounddevice numpy'")
+
 import config
 from affective_core import AffectiveEngine, AudioEnvelopeWrapper, PADState
 from network_hub import RemoteMochiiBridge, namespace_router
+
+# Import K.A.I.'s shiny new eanchainn [brain] components!
+from skills.deep_memory import DeepMemoryCore
+from skills.neuro_affect import NeuroChemicalEngine
+from skills.cognitive_architect import LLMCognitiveBridge
 
 # ---------------------------------------------------------------------------
 # Logging setup
@@ -48,21 +49,12 @@ logging.basicConfig(
 )
 logger = logging.getLogger("kitezh.main")
 
-
 # ---------------------------------------------------------------------------
 # LLM backend helpers
 # ---------------------------------------------------------------------------
 
-
 def send_to_ollama(prompt: str, model: str | None = None) -> str:
-    """
-    Send *prompt* to the Ollama REST API and return the generated text.
-
-    Raises
-    ------
-    RuntimeError
-        If the Ollama server is unreachable or returns an error.
-    """
+    """Send *prompt* to the Ollama REST API and return the generated text."""
     target_model = model or config.OLLAMA_MODEL
     url = f"{config.OLLAMA_BASE_URL}/api/generate"
     payload: dict[str, Any] = {
@@ -84,16 +76,8 @@ def send_to_ollama(prompt: str, model: str | None = None) -> str:
     except requests.exceptions.RequestException as exc:
         raise RuntimeError(f"Ollama request failed: {exc}") from exc
 
-
 def send_to_letta(prompt: str, agent_id: str | None = None) -> str:
-    """
-    Send *prompt* to the Letta REST API and return the assistant's reply.
-
-    Raises
-    ------
-    RuntimeError
-        If the Letta server is unreachable or returns an error.
-    """
+    """Send *prompt* to the Letta REST API and return the assistant's reply."""
     target_agent = agent_id or config.LETTA_AGENT_ID
     if not target_agent:
         raise RuntimeError(
@@ -106,14 +90,11 @@ def send_to_letta(prompt: str, agent_id: str | None = None) -> str:
         "messages": [{"role": "user", "content": prompt}]
     }
 
-    logger.info(
-        "Sending init prompt to Letta (agent=%s, url=%s)", target_agent, url
-    )
+    logger.info("Sending init prompt to Letta (agent=%s, url=%s)", target_agent, url)
     try:
         resp = requests.post(url, json=payload, timeout=120)
         resp.raise_for_status()
         data = resp.json()
-        # Letta returns a list of message objects; find the first assistant reply
         messages = data.get("messages", [])
         for msg in messages:
             if msg.get("role") == "assistant":
@@ -127,7 +108,6 @@ def send_to_letta(prompt: str, agent_id: str | None = None) -> str:
     except requests.exceptions.RequestException as exc:
         raise RuntimeError(f"Letta request failed: {exc}") from exc
 
-
 def load_init_file(path: str) -> str:
     """Read and return the contents of an initialization Markdown file."""
     init_path = Path(path)
@@ -137,70 +117,44 @@ def load_init_file(path: str) -> str:
     logger.info("Loaded init file '%s' (%d chars)", init_path, len(content))
     return content
 
-
 # ---------------------------------------------------------------------------
 # Engine bootstrap
 # ---------------------------------------------------------------------------
 
-
-def bootstrap_engine() -> tuple[AffectiveEngine, AudioEnvelopeWrapper]:
-    """Instantiate and return the core cognitive engine and audio wrapper."""
+def bootstrap_engine() -> tuple[AffectiveEngine, AudioEnvelopeWrapper, LLMCognitiveBridge, NeuroChemicalEngine]:
+    """Instantiate and return the core cognitive engine, audio wrapper, and deep mind."""
+    # 1. The original Affective core and audio
     engine = AffectiveEngine(
         initial_state=PADState(pleasure=0.2, arousal=0.1, dominance=0.0),
         inertia=0.85,
     )
     audio = AudioEnvelopeWrapper(engine)
-    logger.info("AffectiveEngine bootstrapped: %s", engine.current_state)
-    return engine, audio
-
+    
+    # 2. Wire up the deep cognitive mind!
+    memory = DeepMemoryCore(workspace_path=".")
+    neuro = NeuroChemicalEngine()
+    cognitive_bridge = LLMCognitiveBridge(memory, neuro)
+    
+    logger.info("AffectiveEngine and Deep Mind successfully bootstrapped!")
+    return engine, audio, cognitive_bridge, neuro
 
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
-
 
 def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="kitezh",
         description="Kitezh — modular AI orchestrator engine",
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog=__doc__,
     )
-    parser.add_argument(
-        "--init",
-        metavar="FILE",
-        help="Path to a Markdown initialization file to feed into the LLM backend.",
-    )
-    parser.add_argument(
-        "--backend",
-        choices=["ollama", "letta"],
-        default=config.LLM_BACKEND,
-        help="LLM backend to use for --init (default: %(default)s).",
-    )
-    parser.add_argument(
-        "--model",
-        metavar="MODEL",
-        default=None,
-        help="Override the LLM model name (Ollama only).",
-    )
-    parser.add_argument(
-        "--agent-id",
-        metavar="ID",
-        default=None,
-        help="Override the Letta agent ID.",
-    )
-    parser.add_argument(
-        "--health",
-        action="store_true",
-        help="Check connectivity to the remote backend and exit.",
-    )
-    parser.add_argument(
-        "--verbose",
-        action="store_true",
-        help="Enable DEBUG-level logging.",
-    )
+    parser.add_argument("--init", metavar="FILE", help="Path to a Markdown initialization file.")
+    parser.add_argument("--backend", choices=["ollama", "letta"], default=config.LLM_BACKEND)
+    parser.add_argument("--model", metavar="MODEL", default=None)
+    parser.add_argument("--agent-id", metavar="ID", default=None)
+    parser.add_argument("--health", action="store_true", help="Check remote backend connectivity.")
+    parser.add_argument("--verbose", action="store_true", help="Enable DEBUG-level logging.")
     return parser
-
 
 def main(argv: list[str] | None = None) -> int:
     parser = build_arg_parser()
@@ -222,8 +176,11 @@ def main(argv: list[str] | None = None) -> int:
     # ------------------------------------------------------------------
     # Bootstrap cognitive engine
     # ------------------------------------------------------------------
-    engine, audio = bootstrap_engine()
-    logger.info("Audio envelope: %s", audio.compute_envelope())
+    engine, audio, cognitive_bridge, neuro = bootstrap_engine()
+
+    # Log a test frame to ensure the synth is working (fixed method name!)
+    test_frame = audio.generate_frame(duration=0.1)
+    logger.info("Audio envelope initialized properly.")
 
     # ------------------------------------------------------------------
     # Init-file → LLM backend
@@ -249,7 +206,7 @@ def main(argv: list[str] | None = None) -> int:
             return 1
 
     # ------------------------------------------------------------------
-    # Minimal interactive demo (stdin loop)
+    # Full Cognitive Interactive Loop (stdin)
     # ------------------------------------------------------------------
     else:
         logger.info("Kitezh engine ready. Type a message or Ctrl-C to quit.")
@@ -262,6 +219,7 @@ def main(argv: list[str] | None = None) -> int:
                         break
                     if not raw:
                         continue
+                        
                     payload = namespace_router(
                         platform="cli",
                         user_id="local_user",
@@ -269,20 +227,39 @@ def main(argv: list[str] | None = None) -> int:
                         content=raw,
                     )
                     ctx = bridge.query_context(payload)
+                    
                     if ctx.success:
                         print(f"kitezh › {ctx.data}")
                     else:
                         print(f"[remote error] {ctx.error}")
 
-                    # Advance the affective engine one tick per message
+                    # --- K.A.I.'S NEW COGNITIVE PROCESS ---
+                    
+                    # 1. Trigger a chemical reaction based on successful communication!
+                    neuro.apply_stimulus(reward=0.1, success=0.2)
+
+                    # 2. Convert raw chemicals into PAD coordinates and push them to the engine
+                    pad_coords = neuro.get_pad_coordinates()
+                    engine.apply_impulse(pad_coords[0], pad_coords[1], pad_coords[2])
+                    
+                    # 3. Advance the affective engine tick to calculate the momentum drift
                     engine.tick()
-                    logger.debug("Affective state: %s", engine.current_state)
+                    logger.debug("Affective state updated: %s", engine.current_state)
+
+                    # 4. Trigger the BDI Prefrontal Cortex to deliberate!
+                    cognitive_bridge.deliberate()
+                    
+                    # 5. Play the cyber lilt audio out loud!
+                    if sd is not None:
+                        # 44,100 is the SAMPLE_RATE used in affective_core.py
+                        wave_data = audio.generate_frame(duration=1.5)
+                        sd.play(wave_data, 44100)
+                        sd.wait()
 
             except KeyboardInterrupt:
                 print("\nGoodbye.")
 
     return 0
-
 
 if __name__ == "__main__":
     sys.exit(main())
