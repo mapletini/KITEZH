@@ -18,8 +18,9 @@ import os
 def _env(primary: str, *aliases: str, default: str) -> str:
     for key in (primary, *aliases):
         value = os.environ.get(key)
-        if value and value.strip():
-            return value.strip()
+        stripped = value.strip() if value else ""
+        if stripped:
+            return stripped
     return default
 
 

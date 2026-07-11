@@ -56,6 +56,10 @@ class TestBridgeFailures(unittest.TestCase):
         with self.assertRaises(ValueError):
             network_hub.RemoteMochiiBridge(base_url="https://example.com", ai_key="changeme")
 
+    def test_bridge_allows_insecure_key_for_ipv6_loopback(self) -> None:
+        bridge = network_hub.RemoteMochiiBridge(base_url="http://[::1]:8000", ai_key="changeme")
+        self.assertIsNotNone(bridge)
+
     def test_query_context_returns_timeout_error(self) -> None:
         bridge = network_hub.RemoteMochiiBridge(base_url="http://localhost:9999", ai_key="test")
         with patch.object(bridge, "_post", side_effect=ReadTimeout()):

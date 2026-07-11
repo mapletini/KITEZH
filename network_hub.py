@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import ipaddress
 import json
 import logging
 import threading
@@ -13,6 +14,7 @@ import time
 import uuid
 from dataclasses import dataclass, field
 from typing import Any, Literal
+from urllib.parse import urlparse
 
 import requests
 from requests.exceptions import ConnectionError, ReadTimeout, RequestException
@@ -70,7 +72,7 @@ class RemoteMochiiBridge:
             }
         )
         if ai_key in config.INSECURE_AI_KEYS:
-            if not self._base_url.startswith(("http://localhost", "https://localhost", "http://127.0.0.1", "https://127.0.0.1")):
+            if not _is_local_base_url(self._base_url):
                 raise ValueError("Refusing insecure default AI key for non-local remote backend.")
             logger.warning("Bridge running with an insecure default AI key; set KITEZH_AI_KEY.")
 
@@ -146,7 +148,10 @@ class RemoteMochiiBridge:
             logger.error(msg)
             return ContextResponse(success=False, error=msg)
         except ValueError as exc:
-            msg = f"Invalid JSON response from remote backend: {exc}"
+            msg = (
+                f"Invalid JSON response from remote backend: {exc}. "
+                "Expected valid JSON; check backend response format/logs."
+            )
             logger.error(msg)
             return ContextResponse(success=False, error=msg)
 
@@ -285,6 +290,19 @@ class RemoteMochiiBridge:
 
 
 _ADMIN_USER_IDS: set[str] = set()
+
+
+def _is_local_base_url(base_url: str) -> bool:
+    parsed = urlparse(base_url)
+    host = parsed.hostname
+    if not host:
+        return False
+    if host == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
 
 
 def register_admin(user_id: str) -> None:

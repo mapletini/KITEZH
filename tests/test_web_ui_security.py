@@ -7,6 +7,12 @@ import web_ui
 
 
 class TestWebUiSecurity(unittest.TestCase):
+    def test_require_key_rejects_malformed_key_type(self) -> None:
+        with patch.object(web_ui.config, "AI_KEY", "correct-key"):
+            with self.assertRaises(HTTPException) as ctx:
+                web_ui._require_key(None)  # type: ignore[arg-type]
+        self.assertEqual(ctx.exception.status_code, 400)
+
     def test_require_key_rejects_default_secret(self) -> None:
         with patch.object(web_ui.config, "AI_KEY", "changeme"), patch.object(
             web_ui.config, "INSECURE_AI_KEYS", ("changeme", "", "change_me_ai_bridge_secret")
