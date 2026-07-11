@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import json
 import logging
+import requests
 import sqlite3
 import time
 from pathlib import Path
@@ -61,25 +62,43 @@ def _init_chat_db() -> None:
                 timestamp    INTEGER NOT NULL,
                 user_id      TEXT    NOT NULL,
                 display_name TEXT    NOT NULL,
-                content      TEXT    NOT NULL
+                content      TEXT    NOT NULL,
+                thread_id    TEXT    NOT NULL DEFAULT '',
+                channel      TEXT    NOT NULL DEFAULT 'user'
             )
         """)
+        columns = {row["name"] for row in conn.execute("PRAGMA table_info(messages)").fetchall()}
+        if "thread_id" not in columns:
+            conn.execute("ALTER TABLE messages ADD COLUMN thread_id TEXT NOT NULL DEFAULT ''")
+        if "channel" not in columns:
+            conn.execute("ALTER TABLE messages ADD COLUMN channel TEXT NOT NULL DEFAULT 'user'")
+        conn.execute("UPDATE messages SET thread_id = user_id WHERE thread_id = ''")
         conn.commit()
 
 
-def _save_message(user_id: str, display_name: str, content: str) -> None:
+def _save_message(
+    thread_id: str,
+    user_id: str,
+    display_name: str,
+    content: str,
+    channel: str = "user",
+) -> None:
     with _chat_conn() as conn:
         conn.execute(
-            "INSERT INTO messages (timestamp, user_id, display_name, content) VALUES (?,?,?,?)",
-            (int(time.time()), user_id, display_name, content),
+            """
+            INSERT INTO messages (timestamp, user_id, display_name, content, thread_id, channel)
+            VALUES (?,?,?,?,?,?)
+            """,
+            (int(time.time()), user_id, display_name, content, thread_id, channel),
         )
         conn.commit()
 
 
-def _fetch_messages(limit: int = 100) -> list[dict[str, Any]]:
+def _fetch_messages(thread_id: str, limit: int = 100) -> list[dict[str, Any]]:
     with _chat_conn() as conn:
         rows = conn.execute(
-            "SELECT * FROM messages ORDER BY id DESC LIMIT ?", (limit,)
+            "SELECT * FROM messages WHERE thread_id = ? ORDER BY id DESC LIMIT ?",
+            (thread_id, limit),
         ).fetchall()
     return [dict(r) for r in reversed(rows)]
 
@@ -90,7 +109,7 @@ def _fetch_messages(limit: int = 100) -> list[dict[str, Any]]:
 
 
 class ConnectionManager:
-    """Tracks all active WebSocket sessions and broadcasts to every one of them."""
+    """Tracks active WebSocket sessions and routes frames per user session."""
 
     def __init__(self) -> None:
         # user_id → (display_name, WebSocket)
@@ -98,6 +117,12 @@ class ConnectionManager:
 
     async def connect(self, user_id: str, display_name: str, ws: WebSocket) -> None:
         await ws.accept()
+        existing = self._active.get(user_id)
+        if existing:
+            try:
+                await existing[1].close(code=1000)
+            except Exception:
+                pass
         self._active[user_id] = (display_name, ws)
         logger.info("WebSocket connected: %s (%s)", display_name, user_id)
 
@@ -112,16 +137,57 @@ class ConnectionManager:
     def user_list(self) -> list[dict[str, str]]:
         return [{"user_id": uid, "display_name": dn} for uid, (dn, _) in self._active.items()]
 
-    async def broadcast(self, message: dict[str, Any]) -> None:
+    async def send_to(self, user_id: str, message: dict[str, Any]) -> None:
+        entry = self._active.get(user_id)
+        if not entry:
+            return
         payload = json.dumps(message)
-        dead: list[str] = []
-        for uid, (_, ws) in self._active.items():
-            try:
-                await ws.send_text(payload)
-            except Exception:
-                dead.append(uid)
-        for uid in dead:
-            self._active.pop(uid, None)
+        try:
+            await entry[1].send_text(payload)
+        except Exception:
+            self._active.pop(user_id, None)
+
+
+def _extract_kai_content(data: Any) -> str:
+    if isinstance(data, str):
+        return data
+    if isinstance(data, dict):
+        for key in ("response", "reply", "message", "content", "text"):
+            value = data.get(key)
+            if isinstance(value, str) and value.strip():
+                return value
+        messages = data.get("messages")
+        if isinstance(messages, list):
+            for msg in reversed(messages):
+                if isinstance(msg, dict) and msg.get("role") == "assistant":
+                    content = msg.get("content")
+                    if isinstance(content, str) and content.strip():
+                        return content
+        return json.dumps(data, ensure_ascii=False)
+    return str(data)
+
+
+def _query_kai(user_id: str, display_name: str, content: str) -> str:
+    payload = {
+        "platform": "web",
+        "user_id": user_id,
+        "display_name": display_name,
+        "content": content,
+        "clearance": "guest",
+        "is_puppy": False,
+        "metadata": {},
+    }
+    try:
+        response = requests.post(
+            config.CONTEXT_ENDPOINT,
+            json=payload,
+            timeout=config.REQUEST_TIMEOUT,
+        )
+        response.raise_for_status()
+        return _extract_kai_content(response.json())
+    except Exception as exc:
+        logger.warning("K.A.I. context bridge failed: %s", exc)
+        return "K.A.I. bridge unavailable right now. Try again in a moment."
 
 
 # ---------------------------------------------------------------------------
@@ -151,9 +217,9 @@ async def root() -> HTMLResponse:
 
 
 @app.get("/api/chat/log")
-async def chat_log(limit: int = 100) -> dict[str, Any]:
-    """Return the most recent *limit* chat messages."""
-    return {"messages": _fetch_messages(limit)}
+async def chat_log(user_id: str, limit: int = 100) -> dict[str, Any]:
+    """Return the most recent *limit* messages for one private user thread."""
+    return {"messages": _fetch_messages(user_id, limit)}
 
 
 @app.get("/api/chat/users")
@@ -170,19 +236,12 @@ async def websocket_endpoint(ws: WebSocket, user_id: str, display_name: str = "A
         ws://<host>:<port>/ws/<user_id>?display_name=<name>
 
     On connect the client receives a ``history`` frame containing the last 50
-    messages, then live ``message`` and ``system`` frames.
+    messages from its own private thread, then live ``message`` frames.
     """
     await manager.connect(user_id, display_name, ws)
 
-    # Send chat history to the newly connected client.
-    await ws.send_text(json.dumps({"type": "history", "messages": _fetch_messages(50)}))
-
-    # Announce the arrival to all users.
-    await manager.broadcast({
-        "type": "system",
-        "content": f"⬡ {display_name} connected",
-        "users": manager.user_list(),
-    })
+    # Send private history to this user only.
+    await ws.send_text(json.dumps({"type": "history", "messages": _fetch_messages(user_id, 50)}))
 
     try:
         while True:
@@ -191,21 +250,28 @@ async def websocket_endpoint(ws: WebSocket, user_id: str, display_name: str = "A
             content = raw.strip()
             if not content:
                 continue
-            _save_message(user_id, display_name, content)
-            await manager.broadcast({
+            timestamp = int(time.time())
+            _save_message(user_id, user_id, display_name, content, channel="user")
+            await manager.send_to(user_id, {
                 "type": "message",
                 "user_id": user_id,
                 "display_name": display_name,
                 "content": content,
-                "timestamp": int(time.time()),
+                "timestamp": timestamp,
+            })
+
+            kai_reply = _query_kai(user_id, display_name, content)
+            kai_timestamp = int(time.time())
+            _save_message(user_id, "kai", "K.A.I.", kai_reply, channel="kai")
+            await manager.send_to(user_id, {
+                "type": "message",
+                "user_id": "kai",
+                "display_name": "K.A.I.",
+                "content": kai_reply,
+                "timestamp": kai_timestamp,
             })
     except WebSocketDisconnect:
-        name = manager.disconnect(user_id)
-        await manager.broadcast({
-            "type": "system",
-            "content": f"⬡ {name or display_name} disconnected",
-            "users": manager.user_list(),
-        })
+        manager.disconnect(user_id)
 
 
 # ── K.A.I. self-edit endpoints (require x-ai-key) ────────────────────────

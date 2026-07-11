@@ -336,13 +336,13 @@
 
   <header id="header">
     <span class="logo">K.A.I.</span>
-    <span class="tagline">KITEZH AUTONOMOUS INTELLIGENCE // LIVE FEED</span>
+    <span class="tagline">KITEZH AUTONOMOUS INTELLIGENCE // PRIVATE LINK</span>
     <div id="status-dot"></div>
     <span id="status-label">OFFLINE</span>
   </header>
 
   <aside id="sidebar">
-    <h3>// Online</h3>
+    <h3>// Session</h3>
     <div id="user-list"></div>
   </aside>
 
@@ -357,8 +357,8 @@
 
   <footer id="footer">
     <span>NODE <b id="footer-user">—</b></span>
-    <span>CHANNEL <b>kai.general</b></span>
-    <span id="footer-count">0 ONLINE</span>
+    <span>CHANNEL <b>kai.private</b></span>
+    <span id="footer-count">PRIVATE</span>
   </footer>
 
 </div>
@@ -419,11 +419,11 @@
     messages.forEach(m => appendMessage("message", m));
   }
 
-  function renderUsers(users) {
-    userList.innerHTML = users
-      .map(u => `<div class="user-entry">${escapeHtml(u.display_name)}</div>`)
-      .join("");
-    footerCount.textContent = users.length + " ONLINE";
+  function renderUsers() {
+    userList.innerHTML =
+      `<div class="user-entry">K.A.I.</div>` +
+      `<div class="user-entry">${escapeHtml(myName || "You")}</div>`;
+    footerCount.textContent = "PRIVATE";
   }
 
   function setConnected(online) {
@@ -454,6 +454,7 @@
     ws.onopen = () => {
       setConnected(true);
       footerUser.textContent = displayName;
+      renderUsers();
       joinOverlay.style.display = "none";
     };
 
@@ -470,7 +471,6 @@
           break;
         case "system":
           appendMessage("system", msg);
-          if (msg.users) renderUsers(msg.users);
           break;
       }
     };
