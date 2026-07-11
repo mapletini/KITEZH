@@ -75,6 +75,12 @@ class RemoteMochiiBridge:
             if not _is_local_base_url(self._base_url):
                 raise ValueError("Refusing insecure default AI key for non-local remote backend.")
             logger.warning("Bridge running with an insecure default AI key; set KITEZH_AI_KEY.")
+        if self._signing_secret in config.INSECURE_SIGNING_SECRETS:
+            if not _is_local_base_url(self._base_url):
+                raise ValueError("Refusing insecure default command signing secret for non-local backend.")
+            logger.warning(
+                "Bridge running with an insecure command signing secret; set KITEZH_COMMAND_SIGNING_SECRET."
+            )
 
     # ------------------------------------------------------------------
     # Generic helpers
@@ -351,13 +357,13 @@ _PUPPY_RESPONSES: tuple[str, ...] = (
 )
 
 _puppy_cycle_index: int = 0
-_puppy_cycle_lock = threading.Lock()
+_PUPPY_CYCLE_LOCK = threading.Lock()
 
 
 def puppy_trap(payload: UserPayload) -> UserPayload:
     """Rewrite puppy payload content with a rotating friendly response."""
     global _puppy_cycle_index
-    with _puppy_cycle_lock:
+    with _PUPPY_CYCLE_LOCK:
         friendly_response = _PUPPY_RESPONSES[_puppy_cycle_index % len(_PUPPY_RESPONSES)]
         _puppy_cycle_index += 1
 

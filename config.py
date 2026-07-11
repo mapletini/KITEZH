@@ -41,11 +41,19 @@ AI_KEY: str = _env(
 #: Sentinel values treated as insecure/unconfigured API keys by bridge and web auth checks.
 INSECURE_AI_KEYS: tuple[str, ...] = ("", "changeme", "change_me_ai_bridge_secret")
 
+#: Sentinel values treated as insecure/unconfigured command signing secrets.
+INSECURE_SIGNING_SECRETS: tuple[str, ...] = (
+    "",
+    "changeme",
+    "change_me_ai_bridge_secret",
+    "changeme-signing-secret",
+)
+
 #: Secret used to sign command envelopes.
 COMMAND_SIGNING_SECRET: str = _env(
     "KITEZH_COMMAND_SIGNING_SECRET",
     "AI_COMMAND_SIGNING_SECRET",
-    default=AI_KEY,
+    default="changeme-signing-secret",
 )
 
 #: Full URL for the AI context endpoint on the remote backend.

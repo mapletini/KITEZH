@@ -56,6 +56,15 @@ class TestBridgeFailures(unittest.TestCase):
         with self.assertRaises(ValueError):
             network_hub.RemoteMochiiBridge(base_url="https://example.com", ai_key="changeme")
 
+    def test_bridge_rejects_insecure_signing_secret_for_non_local_backend(self) -> None:
+        with patch.object(network_hub.config, "COMMAND_SIGNING_SECRET", "changeme-signing-secret"), patch.object(
+            network_hub.config,
+            "INSECURE_SIGNING_SECRETS",
+            ("", "changeme-signing-secret"),
+        ):
+            with self.assertRaises(ValueError):
+                network_hub.RemoteMochiiBridge(base_url="https://example.com", ai_key="secure-key")
+
     def test_bridge_allows_insecure_key_for_ipv6_loopback(self) -> None:
         bridge = network_hub.RemoteMochiiBridge(base_url="http://[::1]:8000", ai_key="changeme")
         self.assertIsNotNone(bridge)
