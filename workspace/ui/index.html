@@ -384,7 +384,7 @@
   const footerCount = document.getElementById("footer-count");
 
   /* ── Utilities ─────────────────────────────────────────────── */
-  function uid() {
+  function generateUserId() {
     return "u_" + Math.random().toString(36).slice(2, 10);
   }
 
@@ -443,7 +443,7 @@
 
   /* ── WebSocket ─────────────────────────────────────────────── */
   function connect(displayName) {
-    myId   = uid();
+    myId   = generateUserId();
     myName = displayName;
 
     const proto = location.protocol === "https:" ? "wss" : "ws";
