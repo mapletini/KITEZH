@@ -18,8 +18,8 @@ import os
 def _env(primary: str, *aliases: str, default: str) -> str:
     for key in (primary, *aliases):
         value = os.environ.get(key)
-        if value:
-            return value
+        if value and value.strip():
+            return value.strip()
     return default
 
 
@@ -36,6 +36,8 @@ AI_KEY: str = _env(
     "AI_BRIDGE_SECRET",
     default="changeme",
 )
+
+INSECURE_AI_KEYS: tuple[str, ...] = ("", "changeme", "change_me_ai_bridge_secret")
 
 #: Secret used to sign command envelopes.
 COMMAND_SIGNING_SECRET: str = _env(

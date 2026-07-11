@@ -8,6 +8,7 @@ import hashlib
 import hmac
 import json
 import logging
+import threading
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -21,9 +22,6 @@ import config
 logger = logging.getLogger(__name__)
 
 Clearance = Literal["admin", "guest"]
-
-_DEFAULT_KEYS = {"", "changeme", "change_me_ai_bridge_secret"}
-
 
 @dataclass
 class UserPayload:
@@ -62,7 +60,6 @@ class RemoteMochiiBridge:
     ) -> None:
         self._base_url = base_url.rstrip("/")
         self._timeout = timeout
-        self._ai_key = ai_key
         self._signing_secret = config.COMMAND_SIGNING_SECRET
         self._session = requests.Session()
         self._session.headers.update(
@@ -72,7 +69,7 @@ class RemoteMochiiBridge:
                 "Accept": "application/json",
             }
         )
-        if ai_key in _DEFAULT_KEYS:
+        if ai_key in config.INSECURE_AI_KEYS:
             logger.warning("Bridge running with an insecure default AI key; set KITEZH_AI_KEY.")
 
     # ------------------------------------------------------------------
@@ -335,13 +332,15 @@ _PUPPY_RESPONSES: tuple[str, ...] = (
 )
 
 _puppy_cycle_index: int = 0
+_puppy_cycle_lock = threading.Lock()
 
 
 def puppy_trap(payload: UserPayload) -> UserPayload:
     """Rewrite puppy payload content with a rotating friendly response."""
     global _puppy_cycle_index
-    friendly_response = _PUPPY_RESPONSES[_puppy_cycle_index % len(_PUPPY_RESPONSES)]
-    _puppy_cycle_index += 1
+    with _puppy_cycle_lock:
+        friendly_response = _PUPPY_RESPONSES[_puppy_cycle_index % len(_PUPPY_RESPONSES)]
+        _puppy_cycle_index += 1
 
     payload.metadata["original_content"] = payload.content
     payload.metadata["puppy_trap"] = True

@@ -279,7 +279,7 @@ async def websocket_endpoint(ws: WebSocket, user_id: str, display_name: str = "A
 
 
 def _require_key(x_ai_key: str) -> None:
-    if config.AI_KEY in {"", "changeme", "change_me_ai_bridge_secret"}:
+    if config.AI_KEY in config.INSECURE_AI_KEYS:
         raise HTTPException(status_code=503, detail="AI key not configured on server")
     if not secrets.compare_digest(x_ai_key, config.AI_KEY):
         raise HTTPException(status_code=403, detail="Forbidden — invalid AI key")
