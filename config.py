@@ -63,3 +63,10 @@ LETTA_BASE_URL: str = os.environ.get("KITEZH_LETTA_URL", "http://localhost:8283"
 
 #: Letta agent ID to send initialization prompts to.
 LETTA_AGENT_ID: str = os.environ.get("KITEZH_LETTA_AGENT_ID", "")
+
+# ---------------------------------------------------------------------------
+# Web UI
+# ---------------------------------------------------------------------------
+
+#: TCP port the built-in web chat server listens on.
+WEB_PORT: int = int(os.environ.get("KITEZH_WEB_PORT", "7860"))
