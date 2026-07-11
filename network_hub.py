@@ -1,39 +1,203 @@
 """
-network_hub.py — Central orchestrator for the Kitezh intelligence engine.
-
-Responsibilities
-----------------
-* **RemoteMochiiBridge** — thin HTTP client that queries the remote
-  FastAPI/Discord backend with strict custom-header validation.
-* **namespace_router** — multi-tenant payload wrapper that resolves
-  clearance levels (admin / guest) for incoming user messages.
-* **puppy_trap** — interceptor layer that detects the configured puppy
-  Discord ID and redirects processing to a gentle, encouraging protocol.
-
-All remote I/O is isolated here; no business logic bleeds into this file.
+network_hub.py — Complete cryptographic client gateway and API surface mapping for K.A.I.
 """
 
 from __future__ import annotations
 
-import logging
-from dataclasses import dataclass, field
-from typing import Any, Literal
-
+import os
+import hmac
+import uuid
+import json
+import time
+import hashlib
 import requests
-from requests.exceptions import ConnectionError, ReadTimeout, RequestException
-
-import config
+import logging
+from typing import Any, Dict, Optional, List
 
 logger = logging.getLogger(__name__)
 
-# ---------------------------------------------------------------------------
-# Types
-# ---------------------------------------------------------------------------
+class RemoteMochiiBridge:
+    def __init__(self):
+        # Read parameters from local configuration env
+        self.api_url = os.getenv("MOCHII_API_URL", "https://your-remote-backend.com")
+        self.bridge_secret = os.getenv("AI_BRIDGE_SECRET", "change_me_ai_bridge_secret")
+        self.signing_secret = os.getenv("AI_COMMAND_SIGNING_SECRET", self.bridge_secret)
+        
+        self.headers = {
+            "x-ai-key": self.bridge_secret,
+            "Content-Type": "application/json"
+        }
+        self.session = requests.Session()
+        self.session.headers.update(self.headers)
 
-Clearance = Literal["admin", "guest"]
+    # ---------------------------------------------------------------------------
+    # Cryptographic Envelope Signing Engine
+    # ---------------------------------------------------------------------------
 
+    def sign_and_prepare_envelope(self, action_type: str, rules_version: str, action_params: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Structures a standard action payload and generates a strict,
+        replay-protected canonical HMAC-SHA256 envelope signature.
+        """
+        now = int(time.time())
+        
+        payload = {
+            "action_type": action_type,
+            "rules_version_used": rules_version,
+            "command_nonce": str(uuid.uuid4()),
+            "command_issued_at": now,
+            "command_expires_at": now + 300,  # Max 300-second TTL enforcement
+            "actor": "K.A.I. Core System",
+            "rationale_summary": "Autonomous script evaluation pass.",
+            **action_params
+        }
 
+        # Serialize to compact, sorted-key JSON (no spaces)
+        canonical_json = json.dumps(payload, separators=(",", ":"), sort_keys=True)
 
+        # Compute HMAC-SHA256 hex digest
+        signature = hmac.new(
+            self.signing_secret.encode("utf-8"),
+            canonical_json.encode("utf-8"),
+            hashlib.sha256
+        ).hexdigest()
+
+        payload["command_signature"] = signature
+        return payload
+
+    # ---------------------------------------------------------------------------
+    # Core Context & Ingest Operations
+    # ---------------------------------------------------------------------------
+
+    def fetch_unified_context(self) -> Optional[Dict[str, Any]]:
+        """Queries the combined convenience gateway for state hydration."""
+        try:
+            response = self.session.get(f"{self.api_url}/api/ai/context", timeout=10)
+            if response.status_code == 200:
+                return response.json()
+            return None
+        except Exception as e:
+            logger.error(f"K.A.I. Bridge: Context call failed: {str(e)}")
+            return None
+
+    def ingest_snapshot(self, device_id: str, snapshot: Dict[str, Any], usage_stats: Dict[str, Any], app_stats: Dict[str, Any]) -> bool:
+        """Pushes an updated device metric snapshot up to the server datastore."""
+        payload = {
+            "device_id": device_id,
+            "captured_at": int(time.time()),
+            "snapshot": snapshot,
+            "usage_stats": usage_stats,
+            "app_stats": app_stats
+        }
+        try:
+            response = self.session.post(f"{self.api_url}/api/ai/ingest", json=payload, timeout=10)
+            return response.status_code == 200
+        except Exception as e:
+            logger.error(f"K.A.I. Bridge: Ingest operation failed: {str(e)}")
+            return False
+
+    # ---------------------------------------------------------------------------
+    # Telemetry Analytics
+    # ---------------------------------------------------------------------------
+
+    def fetch_telemetry_summary(self, hours: int = 24) -> Optional[Dict[str, Any]]:
+        """Retrieves a summarized breakdown of puppy telemetry events."""
+        try:
+            res = self.session.get(f"{self.api_url}/api/ai/telemetry/summary", params={"hours": hours}, timeout=10)
+            return res.json() if res.status_code == 200 else None
+        except Exception as e:
+            logger.error(f"K.A.I. Bridge: Telemetry fetch failed: {str(e)}")
+            return None
+
+    def fetch_raw_telemetry(self, hours: int = 24, limit: int = 200, offset: int = 0, event_type: Optional[str] = None) -> Optional[Dict[str, Any]]:
+        """Accesses paginated raw telemetry data events."""
+        params = {"hours": hours, "limit": limit, "offset": offset}
+        if event_type:
+            params["event_type"] = event_type
+        try:
+            res = self.session.get(f"{self.api_url}/api/ai/telemetry/raw", params=params, timeout=10)
+            return res.json() if res.status_code == 200 else None
+        except Exception as e:
+            logger.error(f"K.A.I. Bridge: Raw telemetry fetch failed: {str(e)}")
+            return None
+
+    # ---------------------------------------------------------------------------
+    # Rules Synced Feed Operations
+    # ---------------------------------------------------------------------------
+
+    def fetch_rules_changes(self, since_timestamp: int) -> Optional[Dict[str, Any]]:
+        """Queries for rule status deltas since a checkpoint mark."""
+        try:
+            res = self.session.get(f"{self.api_url}/api/ai/rules/changes", params={"since": since_timestamp}, timeout=10)
+            return res.json() if res.status_code == 200 else None
+        except Exception as e:
+            logger.error(f"K.A.I. Bridge: Rules delta check failed: {str(e)}")
+            return None
+
+    def fetch_rules_status(self) -> Optional[Dict[str, Any]]:
+        """Checks rules health and synchronizer freshness status."""
+        try:
+            res = self.session.get(f"{self.api_url}/api/ai/rules/status", timeout=10)
+            return res.json() if res.status_code == 200 else None
+        except Exception as e:
+            logger.error(f"K.A.I. Bridge: Rules health check failed: {str(e)}")
+            return None
+
+    def force_rules_resync(self) -> bool:
+        """Forces an immediate server re-poll against the source channel."""
+        try:
+            res = self.session.post(f"{self.api_url}/api/ai/rules/resync", timeout=15)
+            return res.status_code == 200
+        except Exception as e:
+            logger.error(f"K.A.I. Bridge: Rules force sync failed: {str(e)}")
+            return False
+
+    # ---------------------------------------------------------------------------
+    # App-Action Approval Management
+    # ---------------------------------------------------------------------------
+
+    def fetch_app_approvals(self, status: Optional[str] = None) -> Optional[List[Dict[str, Any]]]:
+        """Gathers a listing of per-app package execution clearance models."""
+        params = {"status": status} if status else {}
+        try:
+            res = self.session.get(f"{self.api_url}/api/ai/app-approvals", params=params, timeout=10)
+            return res.json() if res.status_code == 200 else None
+        except Exception as e:
+            logger.error(f"K.A.I. Bridge: App approvals fetch failed: {str(e)}")
+            return None
+
+    def request_app_approval(self, package_name: str) -> Optional[Dict[str, Any]]:
+        """Dispatches a websocket authorization notice targeting an app package."""
+        try:
+            res = self.session.post(f"{self.api_url}/api/ai/app-approval/request", json={"package_name": package_name}, timeout=10)
+            return res.json() if res.status_code == 200 else None
+        except Exception as e:
+            logger.error(f"K.A.I. Bridge: App approval request failed: {str(e)}")
+            return None
+
+    # ---------------------------------------------------------------------------
+    # Command Execution Routes
+    # ---------------------------------------------------------------------------
+
+    def execute_action(self, action_type: str, rules_version: str, action_params: Dict[str, Any]) -> Dict[str, Any]:
+        """Dispatches a signed command envelope across the gateway network."""
+        envelope = self.sign_and_prepare_envelope(action_type, rules_version, action_params)
+        
+        try:
+            # 1. Run dry-run simulation first
+            sim_url = f"{self.api_url}/api/ai/action/simulate"
+            sim_res = self.session.post(sim_url, json=envelope, timeout=10)
+            
+            if sim_res.status_code != 200 or not sim_res.json().get("allowed", False):
+                return {"status": "aborted", "reason": f"Simulation rejected: {sim_res.text}"}
+
+            # 2. Fire actual live command
+            exec_url = f"{self.api_url}/api/ai/action"
+            response = self.session.post(exec_url, json=envelope, timeout=10)
+            return {"status": "executed", "code": response.status_code, "payload": response.json()}
+            
+        except Exception as e:
+            return {"status": "failed", "error": str(e)}
 @dataclass
 class UserPayload:
     """Structured representation of an incoming user message."""
