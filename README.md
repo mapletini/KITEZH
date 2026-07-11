@@ -30,6 +30,7 @@ K.A.I. is completely isolated from the remote database schema and web traffic, i
 *   Python 3.11+
 *   A local LLM backend (e.g., [Ollama](https://ollama.com/) running a Qwen or Llama 3 model, or a [Letta](https://github.com/letta-ai/letta) agent).
 *   A deployed remote API backend to bridge to.
+*   Optional for local audio playback: `sounddevice` (the engine still runs without it).
 
 ### Initialization
 ```bash
@@ -43,17 +44,27 @@ source .venv/bin/activate
 
 # 3. Install requirements
 pip install -r requirements.txt
+# Optional audio dependency (for speaker playback in interactive mode)
+pip install sounddevice
 
 ```
 ### Configuration
 Create a .env file in the root directory:
 ```env
-MOCHII_API_URL=[https://your-remote-backend.com](https://your-remote-backend.com)
-AI_BRIDGE_SECRET=your_secure_ai_key
-DISCORD_PUPPY_ID=123456789012345678
-LLM_BACKEND=ollama  # or 'letta'
-
+KITEZH_REMOTE_URL=https://your-remote-backend.com
+KITEZH_AI_KEY=your_secure_ai_key
+KITEZH_COMMAND_SIGNING_SECRET=your_signing_secret
+KITEZH_PUPPY_ID=123456789012345678
+KITEZH_LLM_BACKEND=ollama  # or 'letta'
+KITEZH_OLLAMA_URL=http://localhost:11434
+KITEZH_OLLAMA_MODEL=llama3
+KITEZH_LETTA_URL=http://localhost:8283
+KITEZH_LETTA_AGENT_ID=your_agent_id
+KITEZH_WEB_PORT=7860
 ```
+
+Legacy compatibility aliases are still accepted:
+`MOCHII_API_URL`, `AI_BRIDGE_SECRET`, `AI_COMMAND_SIGNING_SECRET`, and `DISCORD_PUPPY_ID`.
 ## 💻 CLI Usage
 The main.py entry point supports multiple modes for initialization, health checking, and active runtime looping.
 ```bash

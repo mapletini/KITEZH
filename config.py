@@ -15,13 +15,34 @@ import os
 # Remote backend
 # ---------------------------------------------------------------------------
 
+def _env(primary: str, *aliases: str, default: str) -> str:
+    for key in (primary, *aliases):
+        value = os.environ.get(key)
+        if value:
+            return value
+    return default
+
+
 #: Base URL of the remote FastAPI / Discord backend.
-REMOTE_BASE_URL: str = os.environ.get(
-    "KITEZH_REMOTE_URL", "http://localhost:8000"
+REMOTE_BASE_URL: str = _env(
+    "KITEZH_REMOTE_URL",
+    "MOCHII_API_URL",
+    default="http://localhost:8000",
 )
 
 #: Secret header value sent with every request to the remote backend.
-AI_KEY: str = os.environ.get("KITEZH_AI_KEY", "changeme")
+AI_KEY: str = _env(
+    "KITEZH_AI_KEY",
+    "AI_BRIDGE_SECRET",
+    default="changeme",
+)
+
+#: Secret used to sign command envelopes.
+COMMAND_SIGNING_SECRET: str = _env(
+    "KITEZH_COMMAND_SIGNING_SECRET",
+    "AI_COMMAND_SIGNING_SECRET",
+    default=AI_KEY,
+)
 
 #: Full URL for the AI context endpoint on the remote backend.
 CONTEXT_ENDPOINT: str = f"{REMOTE_BASE_URL}/api/ai/context"
@@ -34,7 +55,11 @@ REQUEST_TIMEOUT: float = float(os.environ.get("KITEZH_TIMEOUT", "10.0"))
 # ---------------------------------------------------------------------------
 
 #: Discord user ID that triggers the friendly puppy-trap protocol.
-DISCORD_PUPPY_ID: str = os.environ.get("KITEZH_PUPPY_ID", "")
+DISCORD_PUPPY_ID: str = _env(
+    "KITEZH_PUPPY_ID",
+    "DISCORD_PUPPY_ID",
+    default="",
+)
 
 # ---------------------------------------------------------------------------
 # Local workspace (sandboxed skill execution)
