@@ -37,6 +37,11 @@ class TestNamespaceRouter(unittest.TestCase):
 
 
 class TestBridgeFailures(unittest.TestCase):
+    def test_bridge_warns_on_insecure_key(self) -> None:
+        with self.assertLogs("network_hub", level="WARNING") as captured:
+            network_hub.RemoteMochiiBridge(ai_key="changeme")
+        self.assertTrue(any("insecure default AI key" in msg for msg in captured.output))
+
     def test_query_context_returns_timeout_error(self) -> None:
         bridge = network_hub.RemoteMochiiBridge(base_url="http://localhost:9999", ai_key="test")
         with patch.object(bridge, "_post", side_effect=ReadTimeout()):
@@ -65,5 +70,4 @@ class TestBridgeFailures(unittest.TestCase):
                 network_hub.UserPayload("cli", "u1", "User", "hello")
             )
         self.assertFalse(result.success)
-        self.assertIn("Invalid JSON", result.error or "")
-
+        self.assertIn("Invalid JSON response", result.error or "")

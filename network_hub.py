@@ -145,7 +145,7 @@ class RemoteMochiiBridge:
             logger.error(msg)
             return ContextResponse(success=False, error=msg)
         except ValueError as exc:
-            msg = f"Invalid JSON returned by remote backend: {exc}"
+            msg = f"Invalid JSON response from remote backend: {exc}"
             logger.error(msg)
             return ContextResponse(success=False, error=msg)
 
