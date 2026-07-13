@@ -21,6 +21,7 @@ from __future__ import annotations
 import json
 import logging
 import requests
+import secrets
 import sqlite3
 import time
 from pathlib import Path
@@ -278,7 +279,13 @@ async def websocket_endpoint(ws: WebSocket, user_id: str, display_name: str = "A
 
 
 def _require_key(x_ai_key: str) -> None:
-    if x_ai_key != config.AI_KEY:
+    if not isinstance(x_ai_key, str):
+        raise HTTPException(status_code=400, detail="Bad Request — malformed AI key")
+    if not isinstance(config.AI_KEY, str):
+        raise HTTPException(status_code=503, detail="AI key not configured on server")
+    if config.AI_KEY in config.INSECURE_AI_KEYS:
+        raise HTTPException(status_code=503, detail="AI key not configured on server")
+    if not secrets.compare_digest(x_ai_key, config.AI_KEY):
         raise HTTPException(status_code=403, detail="Forbidden — invalid AI key")
 
 
