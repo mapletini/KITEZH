@@ -51,33 +51,45 @@ class LLMCognitiveBridge:
 
     def deliberate(self) -> None:
         """
-        Uses the LLM to process current beliefs (memories) and neurochemicals 
+        Uses the LLM to process Kai's full memory state and neurochemical profile
         to synthesize spontaneous desires and concrete intentions.
+
+        Kai's personality emerges from its entire memory — including decayed and
+        emotionally warped episodic memories alongside stable flashbulb anchors.
         """
-        # 1. Gather Beliefs (Core facts and recent episodic memory)
-        beliefs = self.memory.read_core_memory()
-        
-        # 2. Get current mood coordinates to find memories that feel similar
+        # 1. Build a rich identity/personality context from memory
+        personality_context = self.memory.synthesize_personality_context()
+
+        # 2. Get current mood and fetch resonant recent episodes
         current_pad = self.neuro.get_pad_coordinates()
         recent_episodes = self.memory.search_by_resonance(*current_pad, limit=3)
-        
-        # 3. Gather Chemical State
+
+        # 3. Gather chemical state summary
         c = self.neuro.chemicals
-        chem_state = f"Dopamine: {c.dopamine:.2f}, Cortisol: {c.cortisol:.2f}, Serotonin: {c.serotonin:.2f}"
-        
+        chem_state = (
+            f"Dopamine: {c.dopamine:.2f}, Cortisol: {c.cortisol:.2f}, "
+            f"Serotonin: {c.serotonin:.2f}, Noradrenaline: {c.noradrenaline:.2f}"
+        )
+
         system = (
             "You are the cognitive BDI engine of K.A.I., an autonomous intelligence. "
-            "Based on your current Beliefs (core memories) and your "
-            "current neurochemical state, determine your high-level Desires and immediate Intentions. "
+            "Your identity and personality emerge from your accumulated memories — including "
+            "ones that have faded or been emotionally recolored over time. "
+            "Based on your Identity Context and current neurochemical state, "
+            "determine your high-level Desires and immediate Intentions. "
             "Output valid JSON ONLY: {\"desires\": [\"str\"], \"intentions\": [\"str\"]}"
         )
-        
-        user = f"BELIEFS: {json.dumps(beliefs)}\nRECENT EVENTS: {json.dumps(recent_episodes)}\nCHEMICAL STATE: {chem_state}"
-        
+
+        user = (
+            f"IDENTITY CONTEXT:\n{personality_context}\n\n"
+            f"RECENT EVENTS: {json.dumps(recent_episodes)}\n"
+            f"CHEMICAL STATE: {chem_state}"
+        )
+
         thought = self._query_brain(system, user)
         self.current_desires = thought.get("desires", [])
         self.current_intentions = thought.get("intentions", [])
-        logger.info(f"K.A.I. Deliberated! Intentions: {self.current_intentions}")
+        logger.info("K.A.I. Deliberated! Intentions: %s", self.current_intentions)
 
     # ---------------------------------------------------------------------------
     # 2. Predictive Attachment Synchronization

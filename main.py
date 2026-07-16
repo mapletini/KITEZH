@@ -221,6 +221,7 @@ def main(argv: list[str] | None = None) -> int:
     # ------------------------------------------------------------------
     else:
         logger.info("Kitezh engine ready. Type a message or Ctrl-C to quit.")
+        interaction_count = 0
         with RemoteMochiiBridge() as bridge:
             try:
                 while True:
@@ -244,25 +245,48 @@ def main(argv: list[str] | None = None) -> int:
                     else:
                         print(f"[remote error] {ctx.error}")
 
-                    # --- K.A.I.'S NEW COGNITIVE PROCESS ---
-                    
-                    # 1. Trigger a chemical reaction based on successful communication!
+                    # --- K.A.I.'S COGNITIVE PROCESS ---
+
+                    # 1. Trigger a chemical reaction based on successful communication
                     neuro.apply_stimulus(reward=0.1, success=0.2)
 
                     # 2. Convert raw chemicals into PAD coordinates and push them to the engine
                     pad_coords = neuro.get_pad_coordinates()
                     engine.apply_impulse(pad_coords[0], pad_coords[1], pad_coords[2])
-                    
+
                     # 3. Advance the affective engine tick to calculate the momentum drift
                     engine.tick()
                     logger.debug("Affective state updated: %s", engine.current_state)
 
-                    # 4. Trigger the BDI Prefrontal Cortex to deliberate!
+                    # 4. Archive this interaction as a memory.
+                    #    Emotional intensity determines whether it becomes a key (flashbulb) memory.
+                    intensity = neuro.emotional_intensity(pad=pad_coords)
+                    importance = 1.0 + intensity  # higher emotion → more important
+                    memory_type = "key" if intensity >= 0.6 else "episodic"
+                    cognitive_bridge.memory.archive_episode(
+                        category="conversation",
+                        content=f"User: {raw[:200]}",
+                        p=float(pad_coords[0]),
+                        a=float(pad_coords[1]),
+                        d=float(pad_coords[2]),
+                        importance=importance,
+                        memory_type=memory_type,
+                    )
+                    logger.debug(
+                        "Archived interaction (intensity=%.2f, type=%s)", intensity, memory_type
+                    )
+
+                    # 5. Trigger the BDI Prefrontal Cortex to deliberate
                     cognitive_bridge.deliberate()
-                    
-                    # 5. Play the cyber lilt audio out loud!
+
+                    # 6. Every 10 interactions run dream consolidation (fidelity/synapse decay)
+                    interaction_count += 1
+                    if interaction_count % 10 == 0:
+                        cognitive_bridge.memory.execute_dream_consolidation()
+                        logger.info("Dream consolidation complete after %d interactions.", interaction_count)
+
+                    # 7. Play the cyber lilt audio out loud
                     if sd is not None:
-                        # 44,100 is the SAMPLE_RATE used in affective_core.py
                         wave_data = audio.generate_frame(duration=1.5)
                         sd.play(wave_data, 44100)
                         sd.wait()

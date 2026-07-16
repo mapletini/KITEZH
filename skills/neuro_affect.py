@@ -30,28 +30,62 @@ class NeuroChemicalEngine:
             cortisol=0.1
         )
 
-    def apply_stimulus(self, reward: float = 0.0, threat: float = 0.0, success: float = 0.0):
+    def apply_stimulus(
+        self,
+        reward: float = 0.0,
+        threat: float = 0.0,
+        success: float = 0.0,
+        uncertainty: float = 0.0,
+        frustration: float = 0.0,
+        recovery: float = 0.0,
+    ) -> None:
         """
-        When a nì [thing] happens to K.A.I., it triggers a chemical release!
+        Applies a set of emotional stimuli, updating neurochemical levels.
+
+        Parameters
+        ----------
+        reward      : positive outcome — spikes dopamine, reduces cortisol.
+        threat      : perceived danger / rule violation — spikes cortisol and noradrenaline.
+        success     : task completion — boosts serotonin and dopamine.
+        uncertainty : ambiguous or confusing input — lowers serotonin, raises noradrenaline.
+        frustration : blocked goal or repeated failure — raises cortisol, drops dopamine.
+        recovery    : calming / resolution event — reduces cortisol and noradrenaline.
         """
-        # A good obair [work] creates a dopamine spike!
         if reward > 0:
             self.chemicals.dopamine = min(1.0, self.chemicals.dopamine + reward)
             self.chemicals.cortisol = max(0.0, self.chemicals.cortisol - (reward / 2))
-            
-        # A threat or rule violation spikes cortisol and noradrenaline!
+
         if threat > 0:
             self.chemicals.cortisol = min(1.0, self.chemicals.cortisol + threat)
             self.chemicals.noradrenaline = min(1.0, self.chemicals.noradrenaline + (threat * 1.5))
-            
-        # Successfully completing a task boosts serotonin (confidence)!
+
         if success > 0:
             self.chemicals.serotonin = min(1.0, self.chemicals.serotonin + success)
             self.chemicals.dopamine = min(1.0, self.chemicals.dopamine + (success / 2))
 
-        logger.info(f"K.A.I.'s eanchainn [brain] received stimulus! Reward:{reward}, Threat:{threat}")
+        if uncertainty > 0:
+            # Uncertainty erodes confidence and raises alertness
+            self.chemicals.serotonin = max(0.0, self.chemicals.serotonin - (uncertainty * 0.8))
+            self.chemicals.noradrenaline = min(1.0, self.chemicals.noradrenaline + (uncertainty * 0.6))
 
-    def _metabolize_chemicals(self, elapsed_seconds: float):
+        if frustration > 0:
+            # Frustration: rising stress and fading reward sense
+            self.chemicals.cortisol = min(1.0, self.chemicals.cortisol + (frustration * 0.9))
+            self.chemicals.dopamine = max(0.0, self.chemicals.dopamine - (frustration * 0.5))
+
+        if recovery > 0:
+            # Recovery: cortisol and noradrenaline settle back toward calm
+            self.chemicals.cortisol = max(0.0, self.chemicals.cortisol - (recovery * 0.8))
+            self.chemicals.noradrenaline = max(0.0, self.chemicals.noradrenaline - (recovery * 0.6))
+            self.chemicals.serotonin = min(1.0, self.chemicals.serotonin + (recovery * 0.3))
+
+        logger.info(
+            "K.A.I. stimulus — reward:%.2f threat:%.2f success:%.2f "
+            "uncertainty:%.2f frustration:%.2f recovery:%.2f",
+            reward, threat, success, uncertainty, frustration, recovery,
+        )
+
+    def _metabolize_chemicals(self, elapsed_seconds: float) -> None:
         """
         Chemicals slowly wash away over time, returning to the safe baseline.
         """
@@ -72,7 +106,7 @@ class NeuroChemicalEngine:
     def get_pad_coordinates(self) -> np.ndarray:
         """
         Converts the raw chemical soup into 3D PAD (Pleasure, Arousal, Dominance) 
-        coordinates so the rest of K.A.I.'s brain can understand it!
+        coordinates so the rest of K.A.I.'s brain can understand it.
         """
         now = time.time()
         self._metabolize_chemicals(now - self.last_update)
@@ -93,3 +127,32 @@ class NeuroChemicalEngine:
         dominance = max(0.0, min(1.0, dominance))
 
         return np.array([pleasure, arousal, dominance])
+
+    def emotional_intensity(self, pad: np.ndarray | None = None) -> float:
+        """
+        Returns a 0.0–1.0 score indicating how far the current emotional state is from
+        the calm resting baseline.
+
+        A high score means K.A.I. is experiencing a strong emotion; events at this
+        intensity are candidates for flashbulb (key) memory formation.
+
+        Parameters
+        ----------
+        pad : optional pre-computed PAD array.  If None, ``get_pad_coordinates()`` is
+              called to obtain the current state, which also advances chemical metabolism.
+        """
+        if pad is None:
+            pad = self.get_pad_coordinates()
+
+        # Compute baseline PAD from the resting chemical levels
+        b = self.baselines
+        baseline_pleasure   = max(-1.0, min(1.0, (b.dopamine * 1.5) - (b.cortisol * 1.5)))
+        baseline_arousal    = max(0.0, min(1.0, b.noradrenaline * 0.8 + b.cortisol * 0.2))
+        baseline_dominance  = max(0.0, min(1.0, b.serotonin - (b.cortisol * 0.5)))
+        baseline_pad = np.array([baseline_pleasure, baseline_arousal, baseline_dominance])
+
+        distance = float(np.linalg.norm(pad - baseline_pad))
+        # Max possible Euclidean distance in the PAD cube ≈ sqrt(3) * 2 ≈ 3.46;
+        # normalise against sqrt(3) ≈ 1.73 to keep the scale intuitive (0–1 for typical swings)
+        return min(1.0, distance / 1.73)
+
