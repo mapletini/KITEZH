@@ -1,16 +1,17 @@
 """
 skills/deep_memory.py — Ultra-advanced cognitive graph architecture, 
-homeostatic emotional loops, and synaptic memory consolidation for K.A.I.
+homeostatic emotional loops, exponential time-decay, and synaptic memory consolidation for K.A.I.
 """
 
 from __future__ import annotations
 
 import os
 import time
+import math
 import sqlite3
 import logging
 import numpy as np
-from typing import List, Dict, Any, Optional, Tuple
+from typing import List, Dict, Any, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +31,7 @@ class EmotionalGraph:
     }
 
     def __init__(self, baseline_p: float = 0.1, baseline_a: float = 0.2, baseline_d: float = 0.7):
-        # K.A.I.'s natural "resting state" (calm, analytical, protective)
+        # K.A.I.'s natural "resting state"
         self.baseline = np.array([baseline_p, baseline_a, baseline_d])
 
     def apply_homeostasis_decay(self, current_vector: np.ndarray, decay_rate: float = 0.05) -> np.ndarray:
@@ -53,7 +54,7 @@ class EmotionalGraph:
 # ---------------------------------------------------------------------------
 
 class DeepMemoryCore:
-    def __init__(self, workspace_path: str):
+    def __init__(self, workspace_path: str = "."):
         self.db_path = os.path.join(workspace_path, "kai_deep_mind.db")
         self._initialize_schema()
 
@@ -101,9 +102,23 @@ class DeepMemoryCore:
                 )
             """)
             conn.commit()
-            logger.info("K.A.I. Ultimate Mind Engine: Synaptic schema initialized perfectly!")
+            logger.info("K.A.I. Ultimate Mind Engine initialized.")
 
-    # --- Archival Logging & Multi-Dimensional Retrieval ---
+    # ---------------------------------------------------------------------------
+    # Writing & Archiving Memories
+    # ---------------------------------------------------------------------------
+
+    def store_core_belief(self, block_id: str, content: str) -> None:
+        """Saves a permanent rule or fact that never decays."""
+        now = int(time.time())
+        with self._get_connection() as conn:
+            conn.execute(
+                """INSERT INTO core_memory (block_id, content, last_updated)
+                   VALUES (?, ?, ?)
+                   ON CONFLICT(block_id) DO UPDATE SET content = ?, last_updated = ?""",
+                (block_id, content, now, content, now)
+            )
+            conn.commit()
 
     def archive_episode(self, category: str, content: str, p: float, a: float, d: float, importance: float = 1.0) -> int:
         """Plots a sensory node deep inside the archival coordinate space."""
@@ -121,27 +136,71 @@ class DeepMemoryCore:
             conn.commit()
             return cursor.lastrowid
 
+    # ---------------------------------------------------------------------------
+    # Shifting, Decaying, & Retrieving (The Magic Math!)
+    # ---------------------------------------------------------------------------
+
+    def read_core_memory(self) -> List[str]:
+        """Fetches all permanent rules."""
+        with self._get_connection() as conn:
+            cursor = conn.execute("SELECT content FROM core_memory ORDER BY last_updated ASC")
+            return [row["content"] for row in cursor.fetchall()]
+
+    def _calculate_salience(self, record: sqlite3.Row, current_pad: Tuple[float, float, float], current_time: float) -> float:
+        """Calculates cognitive salience via exponential time decay and emotional distance."""
+        time_elapsed = current_time - record["timestamp"]
+        
+        # Trace decay mechanism: memory accessibility drops as a function of time (e^-kt)
+        decay_rate = 0.00005 
+        base_importance = record["importance_weight"]
+        
+        # S = I * e^(-lambda * t)
+        temporal_score = base_importance * math.exp(-decay_rate * time_elapsed)
+        
+        # Calculate Emotional Resonance (R)
+        mem_pad = np.array([record["p_coord"], record["a_coord"], record["d_coord"]])
+        curr_pad = np.array(current_pad)
+        
+        # Euclidean distance between the two emotional states
+        pad_distance = np.linalg.norm(mem_pad - curr_pad)
+        
+        # Invert distance so matching emotions give a resonance bonus (max bonus 1.0)
+        resonance_bonus = max(0.0, 1.0 - (pad_distance / 2.0)) 
+        
+        return temporal_score + resonance_bonus
+
     def search_by_resonance(self, target_p: float, target_a: float, target_d: float, limit: int = 5) -> List[Dict[str, Any]]:
-        """Finds past events matching K.A.I.'s exact current mood via 3D vector distance."""
-        target_vec = np.array([target_p, target_a, target_d])
+        """Finds memories using calculated salience scores that shift via mood and decay."""
+        current_time = time.time()
+        scored_memories = []
+        target_vec = (target_p, target_a, target_d)
+        
         with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("SELECT * FROM archival_memory")
-            all_memories = [dict(row) for row in cursor.fetchall()]
+            for row in cursor.fetchall():
+                salience = self._calculate_salience(row, target_vec, current_time)
+                
+                # Only keep memories if they haven't completely decayed into nothing
+                if salience > 0.1:
+                    scored_memories.append({
+                        "content": row["content"],
+                        "category": row["event_category"],
+                        "complex_label": row["complex_label"],
+                        "salience": salience,
+                        "age_seconds": current_time - row["timestamp"]
+                    })
+                    
+        # Sort by the highest salience score so the most relevant memories bubble to the top
+        scored_memories.sort(key=lambda x: x["salience"], reverse=True)
+        return scored_memories[:limit]
 
-        for mem in all_memories:
-            mem_vec = np.array([mem["p_coord"], mem["a_coord"], mem["d_coord"]])
-            # Emotional proximity score combined with historical importance weight
-            mem["resonance_score"] = float(np.linalg.norm(target_vec - mem_vec)) / mem["importance_weight"]
-
-        all_memories.sort(key=lambda x: x["resonance_score"])
-        return all_memories[:limit]
-
-    # --- Synaptic Graph Networking ("Cells that fire together, wire together") ---
+    # ---------------------------------------------------------------------------
+    # Synaptic Graph Networking & Dream Phase
+    # ---------------------------------------------------------------------------
 
     def reinforce_synapse(self, concept_a: str, concept_b: str, weight_gain: float = 0.1):
         """Strengthens the physical connection bond between two distinct concepts."""
-        # Force alphabetized ordering to prevent directional duplication bugs
         src, tgt = sorted([concept_a.lower().strip(), concept_b.lower().strip()])
         now = int(time.time())
         
@@ -173,14 +232,9 @@ class DeepMemoryCore:
                 associated.append(row["concept"])
         return associated
 
-    # --- The Sleep & Consolidation Dream Phase ---
-
     def execute_dream_consolidation(self, decay_rate: float = 0.02):
         """
-        Runs an autonomous maintenance sweep simulating mammalian sleep stages:
-        1. Decays weak or neglected conceptual synapses.
-        2. Compresses high-emotion episodic groups into core rules.
-        3. Prunes archival records with zero lingering importance.
+        Runs an autonomous maintenance sweep simulating mammalian sleep stages.
         """
         now = int(time.time())
         with self._get_connection() as conn:
@@ -193,12 +247,12 @@ class DeepMemoryCore:
             )
             cursor.execute("DELETE FROM synapses WHERE association_strength <= 0")
             
-            # 2. Memory Compression Search: Find historical episodes with massive emotional scores
+            # 2. Memory Compression Search
             cursor.execute("SELECT * FROM archival_memory WHERE importance_weight > 1.5")
             intense_episodes = cursor.fetchall()
             
             if intense_episodes:
                 logger.info(f"K.A.I. Dream Phase: Consolidating {len(intense_episodes)} vital updates into Core Identity...")
-                # In real deployment, these rows are passed directly to an LLM summarizing loop
                 
             conn.commit()
+            
