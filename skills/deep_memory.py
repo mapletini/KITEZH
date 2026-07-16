@@ -158,6 +158,12 @@ class DeepMemoryCore:
         }
         for col, typedef in additions.items():
             if col not in existing:
+                # col and typedef come exclusively from the controlled additions dict above;
+                # this assertion ensures no external input can reach the string-format path.
+                assert col in {
+                    "memory_type", "original_content", "fidelity", "distortion_score",
+                    "recall_count", "last_recalled", "last_recall_p", "last_recall_a", "last_recall_d",
+                }, f"Unexpected column name in migration: {col!r}"
                 cursor.execute(f"ALTER TABLE archival_memory ADD COLUMN {col} {typedef}")
         conn.commit()
 

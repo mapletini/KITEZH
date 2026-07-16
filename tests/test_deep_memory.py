@@ -182,7 +182,8 @@ class TestDeepMemoryCore(unittest.TestCase):
     # ------------------------------------------------------------------
 
     def test_episodic_fidelity_decays_on_consolidation(self) -> None:
-        import sqlite3, time
+        import sqlite3
+        import time
         self.mem.archive_episode("daily", "mundane chat", p=0.1, a=0.2, d=0.8)
         old_ts = int(time.time()) - 7200
         conn = sqlite3.connect(self.mem.db_path)
