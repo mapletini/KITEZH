@@ -58,7 +58,7 @@ _web_neuro = NeuroChemicalEngine()
 _web_cognitive = LLMCognitiveBridge(_web_memory, _web_neuro)
 _web_interaction_count = 0
 
-_CONCEPT_TOKEN_RE = re.compile(r"[A-Za-z][A-Za-z0-9_-]{2,}")
+_CONCEPT_TOKEN_RE = re.compile(r"[A-Za-z][A-Za-z0-9_-]{3,}")
 _CONCEPT_STOPWORDS = {
     "the", "and", "for", "with", "that", "this", "from", "have", "your", "you",
     "are", "not", "but", "was", "were", "will", "would", "can", "could", "should",
