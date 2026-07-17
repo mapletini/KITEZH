@@ -54,7 +54,7 @@ class TestLanAdminGuard(unittest.TestCase):
             self.assertFalse(web_ui._is_admin_allowed("192.168.1.1"))
 
 
-class TestWebUiConcepts(unittest.TestCase):
+class TestConceptExtraction(unittest.TestCase):
     def test_extract_concepts_filters_stopwords_and_duplicates(self) -> None:
         concepts = web_ui._extract_concepts("The memory memory graph syncs kai memory state quickly.")
         self.assertIn("memory", concepts)

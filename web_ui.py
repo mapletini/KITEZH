@@ -365,7 +365,7 @@ class LanAdminGuard(BaseHTTPMiddleware):
     """
 
     async def dispatch(self, request: Request, call_next: Any) -> Response:
-        if config.LAN_CIDR and request.url.path.startswith(config.ADMIN_PATH_PREFIX):
+        if request.url.path.startswith(config.ADMIN_PATH_PREFIX):
             host = request.client.host if request.client else None
             if not _is_admin_allowed(host):
                 logger.warning(
