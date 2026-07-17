@@ -13,8 +13,12 @@ import requests
 
 logger = logging.getLogger(__name__)
 
+# Memory labels from the deep-memory PAD graph that should count as negatively priming recalls.
 NEGATIVE_MEMORY_LABELS = {"frustrated_strict", "concerned_alert"}
+# Plutchik-style labels that represent distressed or low-agency states for Kai's regulation logic.
 NEGATIVE_EMOTION_LABELS = {"fear", "sadness", "anger", "disgust", "remorse", "submission"}
+# These lexical buckets let the BDI output steer K.A.I. into a rough regulation family
+# without forcing a strict schema onto the language model response.
 SUPPRESSION_KEYWORDS = {"contain", "suppress", "hide", "mask", "hold back"}
 REAPPRAISAL_KEYWORDS = {"calm", "reframe", "understand", "breathe", "stabilize", "focus"}
 RUMINATION_KEYWORDS = {"brood", "ruminate", "loop", "dwell", "obsess"}
@@ -108,12 +112,17 @@ class LLMCognitiveBridge:
         recent_telemetry: dict[str, Any],
     ) -> None:
         predicted_mood = str(sync_params.get("predicted_mood", "")).lower()
-        metadata = recent_telemetry.get("metadata") if isinstance(recent_telemetry, dict) else None
-        user_id = (
-            recent_telemetry.get("user_id")
-            or recent_telemetry.get("handler_id")
-            or (metadata.get("user_id") if isinstance(metadata, dict) else None)
-        )
+        metadata_user_id = None
+        user_id = None
+        if isinstance(recent_telemetry, dict):
+            metadata = recent_telemetry.get("metadata")
+            if isinstance(metadata, dict):
+                metadata_user_id = metadata.get("user_id")
+            user_id = (
+                recent_telemetry.get("user_id")
+                or recent_telemetry.get("handler_id")
+                or metadata_user_id
+            )
         self.neuro.set_active_user(user_id)
 
         stimulus: dict[str, Any] = {}

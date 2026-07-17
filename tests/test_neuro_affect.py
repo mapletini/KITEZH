@@ -100,7 +100,7 @@ class TestNeuroChemicalEngine(unittest.TestCase):
     # Adaptive mood complexity
     # ------------------------------------------------------------------
 
-    def test_sustained_stress_drifts_dopamine_and_serotonin_baselines_down(self) -> None:
+    def test_sustained_stress_lowers_baselines(self) -> None:
         initial_dopamine = self.engine.baselines.dopamine
         initial_serotonin = self.engine.baselines.serotonin
         for _ in range(6):

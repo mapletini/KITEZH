@@ -49,6 +49,8 @@ logging.basicConfig(
 )
 logger = logging.getLogger("kitezh.main")
 
+MAX_ARCHIVED_MESSAGE_LENGTH = 200
+
 # ---------------------------------------------------------------------------
 # LLM backend helpers
 # ---------------------------------------------------------------------------
@@ -275,9 +277,10 @@ def main(argv: list[str] | None = None) -> int:
                     intensity = neuro.emotional_intensity(pad=pad_coords)
                     importance = 1.0 + intensity  # higher emotion → more important
                     memory_type = "key" if intensity >= 0.6 else "episodic"
+                    archived_user_content = f"User: {raw}"[:MAX_ARCHIVED_MESSAGE_LENGTH]
                     cognitive_bridge.memory.archive_episode(
                         category="conversation",
-                        content=f"User: {raw[:200]}",
+                        content=archived_user_content,
                         p=float(pad_coords[0]),
                         a=float(pad_coords[1]),
                         d=float(pad_coords[2]),

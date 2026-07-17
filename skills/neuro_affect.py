@@ -13,12 +13,18 @@ import numpy as np
 
 logger = logging.getLogger(__name__)
 
+# Supported regulation families: suppression mutes outward expression, reappraisal
+# actively reframes the event, and rumination prolongs the negative loop.
 EmotionRegulationStrategy = Literal["suppression", "reappraisal", "rumination"]
 
+# Cortisol above this level counts as sustained strain and starts depressing mood baselines.
 STRESS_THRESHOLD = 0.6
+# Cortisol below this level allows slow restoration of allostatic load and baseline drift.
 RESTFUL_CORTISOL_THRESHOLD = 0.35
+# Drift bounds keep adaptive baselines degraded but still recoverable over time.
 MIN_BASELINE_DRIFT = 0.55
 MAX_BASELINE_DRIFT = 1.05
+# Burnout can cap confidence, but never below this floor.
 MIN_SEROTONIN_CAP = 0.35
 
 
