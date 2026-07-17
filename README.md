@@ -109,7 +109,7 @@ Key flags set by this script:
 | `--threads` | `$(nproc)` | Auto-detected physical core count |
 | `--ctx-size` | `8192` | Override with `LLAMA_CTX=<n>` |
 
-Hardware requirement: ~26 GB system RAM for Q4\_K\_M Mixtral 8x7B.
+Hardware requirement: ~26 GB system RAM for Q4_K_M Mixtral 8x7B.
 
 ### GPU offload profile (future)
 

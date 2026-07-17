@@ -23,7 +23,8 @@ MODEL="${LLAMA_MODEL:-/models/Nous-Hermes-2-Mixtral-8x7B-DPO.Q4_K_M.gguf}"
 HOST="${LLAMA_HOST:-127.0.0.1}"
 PORT="${LLAMA_PORT:-8080}"
 CTX="${LLAMA_CTX:-8192}"
-# Physical core count — set LLAMA_THREADS to override (hyperthreads are slower for inference)
+# Physical core count, with one core reserved for OS/IO tasks.
+# Set LLAMA_THREADS to override. Hyperthreads are slower for inference — use physical cores only.
 THREADS="${LLAMA_THREADS:-$(nproc --ignore=1 2>/dev/null || sysctl -n hw.physicalcpu 2>/dev/null || echo 4)}"
 
 echo "🦙 Starting llama-server in CPU/RAM mode"
