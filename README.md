@@ -68,6 +68,74 @@ KITEZH_WEB_PORT=7860
 
 Legacy compatibility aliases are still accepted:
 `MOCHII_API_URL`, `AI_BRIDGE_SECRET`, `AI_COMMAND_SIGNING_SECRET`, and `DISCORD_PUPPY_ID`.
+
+---
+
+## 🌐 Network Roles (Dual-homing)
+
+K.A.I. is designed for a bare-metal appliance with two network interfaces:
+
+| Interface | Role | Traffic |
+|---|---|---|
+| **Wi-Fi** | Internet uplink | Remote bridge calls, LLM API, cloudflared tunnel |
+| **Ethernet** | Local device LAN | Admin web UI, camera streams, local hardware |
+
+### How it works
+
+Public internet users reach the chat interface through a **cloudflared** tunnel.
+`cloudflared` runs on the same machine and connects to Kitezh via loopback
+(`127.0.0.1:7860`), so from Uvicorn's perspective the source IP is always loopback.
+
+Operator admin access comes directly over the Ethernet NIC, so the source IP is
+a real address on the local subnet.
+
+The `LanAdminGuard` middleware uses this to enforce separation:
+
+- **Loopback source** (i.e. cloudflared / public internet) → **403** for any `/api/kai/*` route.
+- **LAN source within `KITEZH_LAN_CIDR`** → allowed through to admin endpoints.
+- **Any other source** → **403**.
+- **`KITEZH_LAN_CIDR` unset** → guard is a no-op (useful for local development).
+
+Public routes (`/`, `/ws/*`, `/api/chat/*`, `/api/kai/emotion`) are reachable on
+**both** interfaces regardless of this setting.
+
+### Configuration
+
+Add to your `.env`:
+
+```env
+# Your Ethernet LAN subnet in CIDR notation
+KITEZH_LAN_CIDR=192.168.1.0/24
+
+# Optionally override the admin path prefix (default: /api/kai)
+KITEZH_ADMIN_PATH_PREFIX=/api/kai
+```
+
+### cloudflared setup (outline)
+
+Configure the tunnel ingress to point at the local server:
+
+```yaml
+# ~/.cloudflared/config.yml
+tunnel: <your-tunnel-id>
+credentials-file: /home/user/.cloudflared/<tunnel-id>.json
+
+ingress:
+  - hostname: chat.yourdomain.com
+    service: http://localhost:7860
+  - service: http_status:404
+```
+
+Start the tunnel:
+
+```bash
+cloudflared tunnel run <your-tunnel-name>
+```
+
+Public users reach `https://chat.yourdomain.com`.  Admin routes remain
+exclusively accessible from the Ethernet LAN.
+
+
 ## 💻 CLI Usage
 The main.py entry point supports multiple modes for initialization, health checking, and active runtime looping.
 ```bash
