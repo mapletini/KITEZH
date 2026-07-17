@@ -238,17 +238,28 @@ def main(argv: list[str] | None = None) -> int:
                         display_name="Local User",
                         content=raw,
                     )
+                    neuro.set_active_user(payload.user_id)
                     ctx = bridge.query_context(payload)
-                    
+
                     if ctx.success:
                         print(f"kitezh › {ctx.data}")
+                        sync_payload = {
+                            "user_id": payload.user_id,
+                            "platform": payload.platform,
+                            "content": payload.content,
+                            "metadata": payload.metadata,
+                            "context": ctx.data,
+                        }
+                        cognitive_bridge.synchronize_attachment(sync_payload)
                     else:
                         print(f"[remote error] {ctx.error}")
+                        neuro.apply_stimulus(uncertainty=0.15, frustration=0.05, user_id=payload.user_id)
 
                     # --- K.A.I.'S COGNITIVE PROCESS ---
 
                     # 1. Trigger a chemical reaction based on successful communication
-                    neuro.apply_stimulus(reward=0.1, success=0.2)
+                    if ctx.success:
+                        neuro.apply_stimulus(reward=0.1, success=0.2, user_id=payload.user_id)
 
                     # 2. Convert raw chemicals into PAD coordinates and push them to the engine
                     pad_coords = neuro.get_pad_coordinates()
@@ -256,7 +267,8 @@ def main(argv: list[str] | None = None) -> int:
 
                     # 3. Advance the affective engine tick to calculate the momentum drift
                     engine.tick()
-                    logger.debug("Affective state updated: %s", engine.current_state)
+                    emotion_snapshot = neuro.emotion_snapshot(pad=pad_coords)
+                    logger.debug("Affective state updated: %s label=%s", engine.current_state, emotion_snapshot["label"])
 
                     # 4. Archive this interaction as a memory.
                     #    Emotional intensity determines whether it becomes a key (flashbulb) memory.
