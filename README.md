@@ -90,25 +90,68 @@ python main.py
 
 ## 🦙 llama.cpp + Nous Hermes 2 setup
 
-Use this path when running `Nous-Hermes-2-Mixtral-8x7B` in GGUF format through `llama-server`.
+Use this path when running `Nous-Hermes-2-Mixtral-8x7B-DPO` in GGUF format through `llama-server`.
+The `scripts/` directory provides two ready-made launch profiles. Both expose the same endpoint
+(`http://localhost:8080/v1`) so **switching between CPU and GPU requires no Kitezh code changes** —
+only a script swap and a server restart.
+
+### CPU / RAM-only profile (current default)
 
 ```bash
-# Example launch (adjust model path and GPU layers for your hardware)
-llama-server \
-  --model /models/Nous-Hermes-2-Mixtral-8x7B-DPO.Q4_K_M.gguf \
-  --ctx-size 8192 \
-  --n-gpu-layers 35 \
-  --port 8080 \
-  --chat-template chatml
+export LLAMA_MODEL=/models/Nous-Hermes-2-Mixtral-8x7B-DPO.Q4_K_M.gguf
+./scripts/llama_server_cpu.sh
 ```
 
-Quick smoke test before wiring Kitezh:
+Key flags set by this script:
+| Flag | Value | Notes |
+|---|---|---|
+| `--n-gpu-layers` | `0` | All layers run in RAM, no VRAM needed |
+| `--threads` | `$(nproc)` | Auto-detected physical core count |
+| `--ctx-size` | `8192` | Override with `LLAMA_CTX=<n>` |
+
+Hardware requirement: ~26 GB system RAM for Q4\_K\_M Mixtral 8x7B.
+
+### GPU offload profile (future)
+
+```bash
+export LLAMA_MODEL=/models/Nous-Hermes-2-Mixtral-8x7B-DPO.Q4_K_M.gguf
+./scripts/llama_server_gpu.sh
+```
+
+Key flags set by this script:
+| Flag | Value | Notes |
+|---|---|---|
+| `--n-gpu-layers` | `99` (all) | Override with `LLAMA_GPU_LAYERS=<n>` for partial offload |
+| `--threads` | `4` | CPU threads for scheduling only |
+| `--ctx-size` | `8192` | Override with `LLAMA_CTX=<n>` |
+
+Hardware requirement: ~26 GB VRAM for full offload. Partial offload (fewer `LLAMA_GPU_LAYERS`)
+works with less VRAM at a speed cost.
+
+### Shared env vars
+
+Both scripts honour the same environment variables so they can be sourced from a common `.env`:
+
+```env
+LLAMA_MODEL=/models/Nous-Hermes-2-Mixtral-8x7B-DPO.Q4_K_M.gguf
+LLAMA_HOST=127.0.0.1
+LLAMA_PORT=8080
+LLAMA_CTX=8192
+# CPU mode: set LLAMA_THREADS to physical core count
+# GPU mode: set LLAMA_GPU_LAYERS (default 99 = full offload)
+```
+
+### Quick smoke test
+
+Run this after either script starts to verify the server is ready before launching Kitezh:
+
 ```bash
 curl http://localhost:8080/v1/chat/completions \
   -H 'Content-Type: application/json' \
   -d '{"model":"nous-hermes-2-mixtral-8x7b-dpo-gguf","messages":[{"role":"user","content":"hello"}]}'
 ```
 
-Notes:
-* For Q4_K_M Mixtral 8x7B, plan for roughly ~26GB combined VRAM/RAM if you want high offload and speed.
-* `llama-server` is OpenAI-compatible, so Letta can point to `http://localhost:8080/v1` in its LLM config.
+### Letta → llama-server bridge
+
+`llama-server` is OpenAI-compatible, so Letta can point to `http://localhost:8080/v1` in its
+`LLMConfig`. This works identically regardless of whether the CPU or GPU profile is active.
