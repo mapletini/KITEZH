@@ -18,12 +18,16 @@ Or directly::
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import requests
+import re
 import secrets
 import sqlite3
 import time
+from contextlib import asynccontextmanager, suppress
+from itertools import combinations
 from pathlib import Path
 from typing import Any
 
@@ -32,7 +36,10 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Head
 from fastapi.responses import HTMLResponse
 
 import config
+from skills.cognitive_architect import LLMCognitiveBridge
+from skills.deep_memory import DeepMemoryCore
 from skills.filesystem import WorkspaceWriter, WorkspaceReader
+from skills.neuro_affect import NeuroChemicalEngine
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +48,26 @@ UI_TEMPLATE_PATH = "ui/index.html"
 
 # Dedicated SQLite file for the chat log (separate from deep memory).
 _CHAT_DB_PATH = Path(config.WORKSPACE_PATH) / "chat_log.db"
+_MAX_ARCHIVED_MESSAGE_LENGTH = 200
+_DREAM_CONSOLIDATION_INTERVAL_SECONDS = 3600
+_DREAM_CONSOLIDATION_INTERACTION_FREQUENCY = 10
+
+# Core cognition state for web mode.
+_web_memory = DeepMemoryCore(workspace_path=config.WORKSPACE_PATH)
+_web_neuro = NeuroChemicalEngine()
+_web_cognitive = LLMCognitiveBridge(_web_memory, _web_neuro)
+_web_interaction_count = 0
+
+# Keep concept tokens at 4+ chars to reduce low-signal function words.
+_CONCEPT_TOKEN_RE = re.compile(r"[A-Za-z][A-Za-z0-9_-]{3,}")
+_CONCEPT_STOPWORDS = {
+    "the", "and", "for", "with", "that", "this", "from", "have", "your", "you",
+    "are", "not", "but", "was", "were", "will", "would", "can", "could", "should",
+    "about", "into", "through", "their", "there", "what", "when", "where", "why",
+    "how", "just", "very", "like", "they", "them", "then", "than", "been", "ours",
+    # Domain labels that appear in nearly every chat line and add little concept value.
+    "ourselves", "kai", "user", "assistant", "reply",
+}
 
 
 # ---------------------------------------------------------------------------
@@ -191,12 +218,103 @@ def _query_kai(user_id: str, display_name: str, content: str) -> str:
         return "K.A.I. bridge unavailable right now. Try again in a moment."
 
 
+def _extract_concepts(text: str, limit: int = 12) -> list[str]:
+    concepts: list[str] = []
+    seen: set[str] = set()
+    for token in _CONCEPT_TOKEN_RE.findall(text.lower()):
+        if token in _CONCEPT_STOPWORDS:
+            continue
+        if token in seen:
+            continue
+        seen.add(token)
+        concepts.append(token)
+        if len(concepts) >= limit:
+            break
+    return concepts
+
+
+def _reinforce_message_concepts(text: str) -> None:
+    concepts = _extract_concepts(text)
+    if len(concepts) < 2:
+        return
+    for concept_a, concept_b in combinations(concepts, 2):
+        _web_memory.reinforce_synapse(concept_a, concept_b, weight_gain=0.02)
+
+
+def _process_web_cognitive_loop(user_id: str, display_name: str, user_content: str, kai_reply: str) -> None:
+    global _web_interaction_count
+
+    _web_neuro.set_active_user(user_id)
+    bridge_failed = "bridge unavailable" in kai_reply.lower()
+    if bridge_failed:
+        _web_neuro.apply_stimulus(uncertainty=0.15, frustration=0.05, user_id=user_id)
+    else:
+        _web_neuro.apply_stimulus(reward=0.1, success=0.2, user_id=user_id)
+        _web_cognitive.synchronize_attachment(
+            {
+                "user_id": user_id,
+                "display_name": display_name,
+                "platform": "web",
+                "content": user_content,
+                "reply": kai_reply,
+                "metadata": {},
+            }
+        )
+
+    pad_coords = _web_neuro.get_pad_coordinates()
+    intensity = _web_neuro.emotional_intensity(pad=pad_coords)
+    memory_type = "key" if intensity >= 0.6 else "episodic"
+    archived_content = (
+        f"User({display_name}): {user_content} | Kai: {kai_reply}"
+    )[:_MAX_ARCHIVED_MESSAGE_LENGTH]
+    _web_memory.archive_episode(
+        category="web_conversation",
+        content=archived_content,
+        p=float(pad_coords[0]),
+        a=float(pad_coords[1]),
+        d=float(pad_coords[2]),
+        importance=1.0 + intensity,
+        memory_type=memory_type,
+    )
+
+    _reinforce_message_concepts(user_content)
+    _reinforce_message_concepts(kai_reply)
+    _web_cognitive.deliberate()
+
+    _web_interaction_count += 1
+    if _web_interaction_count % _DREAM_CONSOLIDATION_INTERACTION_FREQUENCY == 0:
+        _web_memory.execute_dream_consolidation()
+
+
+async def _dream_consolidation_daemon() -> None:
+    while True:
+        await asyncio.sleep(_DREAM_CONSOLIDATION_INTERVAL_SECONDS)
+        try:
+            _web_memory.execute_dream_consolidation()
+            logger.info("Background dream consolidation complete.")
+        except Exception as exc:
+            logger.exception("Background dream consolidation failed: %s", exc)
+
+
 # ---------------------------------------------------------------------------
 # FastAPI application
 # ---------------------------------------------------------------------------
 
 _init_chat_db()
-app = FastAPI(title="K.A.I. Chat Interface", docs_url=None, redoc_url=None)
+
+
+@asynccontextmanager
+async def _lifespan(_: FastAPI):
+    background_task = asyncio.create_task(_dream_consolidation_daemon())
+    try:
+        yield
+    finally:
+        background_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await background_task
+
+
+app = FastAPI(title="K.A.I. Chat Interface", docs_url=None, redoc_url=None, lifespan=_lifespan)
 manager = ConnectionManager()
 
 
@@ -227,6 +345,12 @@ async def chat_log(user_id: str, limit: int = 100) -> dict[str, Any]:
 async def online_users() -> dict[str, Any]:
     """Return the list of currently connected users."""
     return {"count": manager.user_count, "users": manager.user_list()}
+
+
+@app.get("/api/kai/emotion")
+async def emotion_state() -> dict[str, Any]:
+    """Return K.A.I.'s current emotion snapshot from web-mode neuro state."""
+    return {"emotion": _web_neuro.emotion_snapshot()}
 
 
 @app.websocket("/ws/{user_id}")
@@ -271,6 +395,7 @@ async def websocket_endpoint(ws: WebSocket, user_id: str, display_name: str = "A
                 "content": kai_reply,
                 "timestamp": kai_timestamp,
             })
+            _process_web_cognitive_loop(user_id, display_name, content, kai_reply)
     except WebSocketDisconnect:
         manager.disconnect(user_id)
 
@@ -329,6 +454,21 @@ async def write_ui(
         raise HTTPException(status_code=422, detail="Body must contain 'content' key")
     writer = WorkspaceWriter()
     writer.write_text(UI_TEMPLATE_PATH, body["content"])
+    return {"status": "ok"}
+
+
+@app.post("/api/kai/seed-belief")
+async def seed_belief(
+    body: dict[str, str] = Body(...),
+    x_ai_key: str = Header(...),
+) -> dict[str, str]:
+    """Store or update a permanent core memory belief."""
+    _require_key(x_ai_key)
+    block_id = body.get("block_id", "").strip()
+    content = body.get("content", "").strip()
+    if not block_id or not content:
+        raise HTTPException(status_code=422, detail="Body must include non-empty 'block_id' and 'content'")
+    _web_memory.store_core_belief(block_id, content)
     return {"status": "ok"}
 
 
