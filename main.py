@@ -110,6 +110,37 @@ def send_to_letta(prompt: str, agent_id: str | None = None) -> str:
     except requests.exceptions.RequestException as exc:
         raise RuntimeError(f"Letta request failed: {exc}") from exc
 
+def send_to_llamacpp(prompt: str, model: str | None = None) -> str:
+    """Send *prompt* to a llama.cpp OpenAI-compatible endpoint and return text."""
+    target_model = model or config.LLAMACPP_MODEL
+    url = f"{config.LLAMACPP_BASE_URL}/v1/chat/completions"
+    payload: dict[str, Any] = {
+        "model": target_model,
+        "messages": [
+            {"role": "system", "content": "You are a helpful assistant."},
+            {"role": "user", "content": prompt},
+        ],
+        "stream": False,
+    }
+
+    logger.info("Sending init prompt to llama.cpp (model=%s, url=%s)", target_model, url)
+    try:
+        resp = requests.post(url, json=payload, timeout=120)
+        resp.raise_for_status()
+        data = resp.json()
+        choices = data.get("choices", [])
+        if not choices:
+            return str(data)
+        message = choices[0].get("message", {})
+        return message.get("content", "") or str(data)
+    except requests.exceptions.ConnectionError as exc:
+        raise RuntimeError(
+            f"Cannot connect to llama.cpp server at '{config.LLAMACPP_BASE_URL}'. "
+            "Is llama-server running?"
+        ) from exc
+    except requests.exceptions.RequestException as exc:
+        raise RuntimeError(f"llama.cpp request failed: {exc}") from exc
+
 def load_init_file(path: str) -> str:
     """Read and return the contents of an initialization Markdown file."""
     init_path = Path(path)
@@ -151,7 +182,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument("--init", metavar="FILE", help="Path to a Markdown initialization file.")
-    parser.add_argument("--backend", choices=["ollama", "letta"], default=config.LLM_BACKEND)
+    parser.add_argument("--backend", choices=["ollama", "letta", "llamacpp"], default=config.LLM_BACKEND)
     parser.add_argument("--model", metavar="MODEL", default=None)
     parser.add_argument("--agent-id", metavar="ID", default=None)
     parser.add_argument("--health", action="store_true", help="Check remote backend connectivity.")
@@ -208,6 +239,8 @@ def main(argv: list[str] | None = None) -> int:
         try:
             if args.backend == "ollama":
                 response = send_to_ollama(prompt, model=args.model)
+            elif args.backend == "llamacpp":
+                response = send_to_llamacpp(prompt, model=args.model)
             else:
                 response = send_to_letta(prompt, agent_id=args.agent_id)
             print("─" * 60)

@@ -101,9 +101,30 @@ LETTA_BASE_URL: str = os.environ.get("KITEZH_LETTA_URL", "http://localhost:8283"
 #: Letta agent ID to send initialization prompts to.
 LETTA_AGENT_ID: str = os.environ.get("KITEZH_LETTA_AGENT_ID", "")
 
+#: Base URL for the llama.cpp OpenAI-compatible API.
+LLAMACPP_BASE_URL: str = os.environ.get("KITEZH_LLAMACPP_URL", "http://localhost:8080")
+
+#: llama.cpp model name to target on /v1/chat/completions.
+LLAMACPP_MODEL: str = os.environ.get("KITEZH_LLAMACPP_MODEL", "nous-hermes-2-mixtral-8x7b-dpo-gguf")
+
 # ---------------------------------------------------------------------------
 # Web UI
 # ---------------------------------------------------------------------------
 
 #: TCP port the built-in web chat server listens on.
 WEB_PORT: int = int(os.environ.get("KITEZH_WEB_PORT", "7860"))
+
+# ---------------------------------------------------------------------------
+# Dual-homing / network roles
+# ---------------------------------------------------------------------------
+
+#: Ethernet LAN subnet (CIDR) from which admin-only web routes are accessible.
+#: When empty (the default), no IP-based restriction is applied — useful for
+#: local development without a split-network setup.
+#: Example: "192.168.1.0/24"
+LAN_CIDR: str = os.environ.get("KITEZH_LAN_CIDR", "")
+
+#: URL path prefix treated as admin-only on the LAN segment.
+#: Any request whose path starts with this prefix is blocked for loopback and
+#: non-LAN source IPs when KITEZH_LAN_CIDR is configured.
+ADMIN_PATH_PREFIX: str = os.environ.get("KITEZH_ADMIN_PATH_PREFIX", "/api/kai")

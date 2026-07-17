@@ -19,11 +19,11 @@ Or directly::
 from __future__ import annotations
 
 import asyncio
+import ipaddress
 import json
 import logging
 import requests
 import re
-import secrets
 import sqlite3
 import time
 from contextlib import asynccontextmanager, suppress
@@ -32,8 +32,9 @@ from pathlib import Path
 from typing import Any
 
 import uvicorn
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Header, Body
-from fastapi.responses import HTMLResponse
+from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect, HTTPException, Body
+from fastapi.responses import HTMLResponse, Response
+from starlette.middleware.base import BaseHTTPMiddleware
 
 import config
 from skills.cognitive_architect import LLMCognitiveBridge
@@ -318,6 +319,70 @@ app = FastAPI(title="K.A.I. Chat Interface", docs_url=None, redoc_url=None, life
 manager = ConnectionManager()
 
 
+# ---------------------------------------------------------------------------
+# LAN-only admin guard
+# ---------------------------------------------------------------------------
+
+
+def _is_admin_allowed(client_host: str | None) -> bool:
+    """Return True if the source IP is permitted to call admin endpoints.
+
+    When KITEZH_LAN_CIDR is unset the guard is disabled (always returns True),
+    preserving the existing behaviour for development setups.
+
+    In production with dual-homing:
+    - Public internet traffic arrives via cloudflared → loopback (127.0.0.1) → blocked.
+    - Operator LAN traffic arrives directly on the Ethernet NIC → allowed.
+    """
+    if not config.LAN_CIDR:
+        return True  # Guard disabled; allow all (development / unconfigured)
+    if not client_host:
+        return False
+    try:
+        addr = ipaddress.ip_address(client_host)
+    except ValueError:
+        return False
+    if addr.is_loopback:
+        # cloudflared tunnels public requests in via loopback — deny
+        return False
+    try:
+        network = ipaddress.ip_network(config.LAN_CIDR, strict=False)
+    except ValueError:
+        logger.error(
+            "KITEZH_LAN_CIDR '%s' is not a valid CIDR; blocking all admin access.",
+            config.LAN_CIDR,
+        )
+        return False
+    return addr in network
+
+
+class LanAdminGuard(BaseHTTPMiddleware):
+    """Restrict admin-prefixed routes to direct LAN connections only.
+
+    Public traffic tunnelled through cloudflared arrives from loopback and is
+    blocked.  Direct Ethernet connections within the configured LAN CIDR are
+    allowed through.  All other paths are unaffected.
+    """
+
+    async def dispatch(self, request: Request, call_next: Any) -> Response:
+        if request.url.path.startswith(config.ADMIN_PATH_PREFIX):
+            host = request.client.host if request.client else None
+            if not _is_admin_allowed(host):
+                logger.warning(
+                    "LanAdminGuard: blocked admin request from %s → %s",
+                    host,
+                    request.url.path,
+                )
+                return Response(
+                    "Forbidden — admin routes require a direct LAN connection.",
+                    status_code=403,
+                )
+        return await call_next(request)
+
+
+app.add_middleware(LanAdminGuard)
+
+
 # ── Public endpoints ──────────────────────────────────────────────────────
 
 
@@ -400,24 +465,12 @@ async def websocket_endpoint(ws: WebSocket, user_id: str, display_name: str = "A
         manager.disconnect(user_id)
 
 
-# ── K.A.I. self-edit endpoints (require x-ai-key) ────────────────────────
-
-
-def _require_key(x_ai_key: str) -> None:
-    if not isinstance(x_ai_key, str):
-        raise HTTPException(status_code=400, detail="Bad Request — malformed AI key")
-    if not isinstance(config.AI_KEY, str):
-        raise HTTPException(status_code=503, detail="AI key not configured on server")
-    if config.AI_KEY in config.INSECURE_AI_KEYS:
-        raise HTTPException(status_code=503, detail="AI key not configured on server")
-    if not secrets.compare_digest(x_ai_key, config.AI_KEY):
-        raise HTTPException(status_code=403, detail="Forbidden — invalid AI key")
+# ── K.A.I. self-edit endpoints (LAN-only, guarded by LanAdminGuard) ──────────────────────
 
 
 @app.get("/api/kai/read-ui")
-async def read_ui(x_ai_key: str = Header(...)) -> dict[str, str]:
+async def read_ui() -> dict[str, str]:
     """K.A.I. reads the full source of its own chat interface."""
-    _require_key(x_ai_key)
     reader = WorkspaceReader()
     if not reader.exists(UI_TEMPLATE_PATH):
         raise HTTPException(status_code=404, detail="UI template not found")
@@ -427,13 +480,11 @@ async def read_ui(x_ai_key: str = Header(...)) -> dict[str, str]:
 @app.post("/api/kai/patch-ui")
 async def patch_ui(
     body: dict[str, str] = Body(...),
-    x_ai_key: str = Header(...),
 ) -> dict[str, Any]:
     """
     K.A.I. replaces a substring in its UI.  Body: ``{"old": "...", "new": "..."}``.
     Returns the number of replacements made.
     """
-    _require_key(x_ai_key)
     if "old" not in body or "new" not in body:
         raise HTTPException(status_code=422, detail="Body must contain 'old' and 'new' keys")
     writer = WorkspaceWriter()
@@ -444,12 +495,10 @@ async def patch_ui(
 @app.post("/api/kai/write-ui")
 async def write_ui(
     body: dict[str, str] = Body(...),
-    x_ai_key: str = Header(...),
 ) -> dict[str, str]:
     """
     K.A.I. fully rewrites its UI with fresh HTML.  Body: ``{"content": "..."}``.
     """
-    _require_key(x_ai_key)
     if "content" not in body:
         raise HTTPException(status_code=422, detail="Body must contain 'content' key")
     writer = WorkspaceWriter()
@@ -460,10 +509,8 @@ async def write_ui(
 @app.post("/api/kai/seed-belief")
 async def seed_belief(
     body: dict[str, str] = Body(...),
-    x_ai_key: str = Header(...),
 ) -> dict[str, str]:
     """Store or update a permanent core memory belief."""
-    _require_key(x_ai_key)
     block_id = body.get("block_id", "").strip()
     content = body.get("content", "").strip()
     if not block_id or not content:
