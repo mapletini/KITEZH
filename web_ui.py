@@ -64,6 +64,7 @@ _CONCEPT_STOPWORDS = {
     "are", "not", "but", "was", "were", "will", "would", "can", "could", "should",
     "about", "into", "through", "their", "there", "what", "when", "where", "why",
     "how", "just", "very", "like", "they", "them", "then", "than", "been", "ours",
+    # Domain labels that appear in nearly every chat line and add little concept value.
     "ourselves", "kai", "user", "assistant", "reply",
 }
 

@@ -403,6 +403,7 @@
   let ws        = null;
   let myId      = null;
   let myName    = null;
+  let emotionTimer = null;
 
   /* ── DOM refs ──────────────────────────────────────────────── */
   const joinOverlay = document.getElementById("join-overlay");
@@ -508,6 +509,9 @@
       renderUsers();
       joinOverlay.style.display = "none";
       refreshEmotion();
+      if (!emotionTimer) {
+        emotionTimer = setInterval(refreshEmotion, 5000);
+      }
     };
 
     ws.onmessage = (evt) => {
@@ -530,6 +534,10 @@
     ws.onclose = () => {
       setConnected(false);
       appendMessage("system", { content: "⬡ Connection lost. Refresh to reconnect." });
+      if (emotionTimer) {
+        clearInterval(emotionTimer);
+        emotionTimer = null;
+      }
     };
 
     ws.onerror = () => {
@@ -561,7 +569,6 @@
   joinBtn.addEventListener("click", attemptJoin);
   nameInput.addEventListener("keydown", (e) => { if (e.key === "Enter") attemptJoin(); });
   nameInput.focus();
-  setInterval(refreshEmotion, 5000);
 </script>
 </body>
 </html>
