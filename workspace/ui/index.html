@@ -490,7 +490,9 @@
       const intensity = Math.max(0, Math.min(1, Number(emotion.intensity || 0)));
       emotionLabel.textContent = label;
       emotionFill.style.width = `${Math.round(intensity * 100)}%`;
-    } catch (_) {}
+    } catch (err) {
+      console.debug("Emotion refresh failed:", err);
+    }
   }
 
   /* ── WebSocket ─────────────────────────────────────────────── */

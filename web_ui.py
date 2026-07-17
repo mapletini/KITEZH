@@ -58,6 +58,7 @@ _web_neuro = NeuroChemicalEngine()
 _web_cognitive = LLMCognitiveBridge(_web_memory, _web_neuro)
 _web_interaction_count = 0
 
+# Keep concept tokens at 4+ chars to reduce low-signal function words.
 _CONCEPT_TOKEN_RE = re.compile(r"[A-Za-z][A-Za-z0-9_-]{3,}")
 _CONCEPT_STOPWORDS = {
     "the", "and", "for", "with", "that", "this", "from", "have", "your", "you",
@@ -288,8 +289,11 @@ def _process_web_cognitive_loop(user_id: str, display_name: str, user_content: s
 async def _dream_consolidation_daemon() -> None:
     while True:
         await asyncio.sleep(_DREAM_CONSOLIDATION_INTERVAL_SECONDS)
-        _web_memory.execute_dream_consolidation()
-        logger.info("Background dream consolidation complete.")
+        try:
+            _web_memory.execute_dream_consolidation()
+            logger.info("Background dream consolidation complete.")
+        except Exception as exc:
+            logger.exception("Background dream consolidation failed: %s", exc)
 
 
 # ---------------------------------------------------------------------------
