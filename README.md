@@ -112,4 +112,3 @@ curl http://localhost:8080/v1/chat/completions \
 Notes:
 * For Q4_K_M Mixtral 8x7B, plan for roughly ~26GB combined VRAM/RAM if you want high offload and speed.
 * `llama-server` is OpenAI-compatible, so Letta can point to `http://localhost:8080/v1` in its LLM config.
-```
