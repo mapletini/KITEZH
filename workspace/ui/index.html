@@ -88,6 +88,37 @@
       letter-spacing: 1px;
     }
 
+    #emotion-box {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-right: 10px;
+      font-size: 10px;
+      color: var(--text-dim);
+      letter-spacing: 1px;
+    }
+
+    #emotion-label {
+      color: var(--accent2);
+      text-transform: uppercase;
+    }
+
+    #emotion-meter {
+      width: 60px;
+      height: 4px;
+      border: 1px solid var(--dim);
+      border-radius: 2px;
+      overflow: hidden;
+      background: transparent;
+    }
+
+    #emotion-fill {
+      width: 0%;
+      height: 100%;
+      background: var(--accent2);
+      transition: width 0.3s ease;
+    }
+
     /* ── Sidebar ──────────────────────────────────────────────────── */
     #sidebar {
       grid-area: sidebar;
@@ -337,6 +368,10 @@
   <header id="header">
     <span class="logo">K.A.I.</span>
     <span class="tagline">KITEZH AUTONOMOUS INTELLIGENCE // PRIVATE LINK</span>
+    <div id="emotion-box">
+      <span id="emotion-label">NEUTRAL</span>
+      <div id="emotion-meter"><div id="emotion-fill"></div></div>
+    </div>
     <div id="status-dot"></div>
     <span id="status-label">OFFLINE</span>
   </header>
@@ -379,6 +414,8 @@
   const sendBtn     = document.getElementById("send-btn");
   const statusDot   = document.getElementById("status-dot");
   const statusLabel = document.getElementById("status-label");
+  const emotionLabel = document.getElementById("emotion-label");
+  const emotionFill  = document.getElementById("emotion-fill");
   const userList    = document.getElementById("user-list");
   const footerUser  = document.getElementById("footer-user");
   const footerCount = document.getElementById("footer-count");
@@ -441,6 +478,20 @@
     }
   }
 
+  async function refreshEmotion() {
+    if (!myId) return;
+    try {
+      const res = await fetch("/api/kai/emotion");
+      if (!res.ok) return;
+      const data = await res.json();
+      const emotion = data.emotion || {};
+      const label = (emotion.label || "neutral").toString().toUpperCase();
+      const intensity = Math.max(0, Math.min(1, Number(emotion.intensity || 0)));
+      emotionLabel.textContent = label;
+      emotionFill.style.width = `${Math.round(intensity * 100)}%`;
+    } catch (_) {}
+  }
+
   /* ── WebSocket ─────────────────────────────────────────────── */
   function connect(displayName) {
     myId   = generateUserId();
@@ -456,6 +507,7 @@
       footerUser.textContent = displayName;
       renderUsers();
       joinOverlay.style.display = "none";
+      refreshEmotion();
     };
 
     ws.onmessage = (evt) => {
@@ -509,6 +561,7 @@
   joinBtn.addEventListener("click", attemptJoin);
   nameInput.addEventListener("keydown", (e) => { if (e.key === "Enter") attemptJoin(); });
   nameInput.focus();
+  setInterval(refreshEmotion, 5000);
 </script>
 </body>
 </html>
