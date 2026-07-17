@@ -53,7 +53,7 @@ _DREAM_CONSOLIDATION_INTERVAL_SECONDS = 3600
 _DREAM_CONSOLIDATION_INTERACTION_FREQUENCY = 10
 
 # Core cognition state for web mode.
-_web_memory = DeepMemoryCore(workspace_path=".")
+_web_memory = DeepMemoryCore(workspace_path=config.WORKSPACE_PATH)
 _web_neuro = NeuroChemicalEngine()
 _web_cognitive = LLMCognitiveBridge(_web_memory, _web_neuro)
 _web_interaction_count = 0
