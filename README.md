@@ -28,7 +28,7 @@ K.A.I. is completely isolated from the remote database schema and web traffic, i
 
 ### Prerequisites
 *   Python 3.11+
-*   A local LLM backend (e.g., [Ollama](https://ollama.com/) running a Qwen or Llama 3 model, or a [Letta](https://github.com/letta-ai/letta) agent).
+*   A local LLM backend (e.g., [Ollama](https://ollama.com/), [Letta](https://github.com/letta-ai/letta), or [llama.cpp](https://github.com/ggml-org/llama.cpp) `llama-server`).
 *   A deployed remote API backend to bridge to.
 *   Optional for local audio playback: `sounddevice` (the engine still runs without it).
     * If it is missing, interactive mode still works and logs a warning while skipping speaker output.
@@ -61,6 +61,8 @@ KITEZH_OLLAMA_URL=http://localhost:11434
 KITEZH_OLLAMA_MODEL=llama3
 KITEZH_LETTA_URL=http://localhost:8283
 KITEZH_LETTA_AGENT_ID=your_agent_id
+KITEZH_LLAMACPP_URL=http://localhost:8080
+KITEZH_LLAMACPP_MODEL=nous-hermes-2-mixtral-8x7b-dpo-gguf
 KITEZH_WEB_PORT=7860
 ```
 
@@ -75,6 +77,9 @@ python main.py --init system_manifest.md
 # Target a Letta agent backend instead
 python main.py --init system_manifest.md --backend letta
 
+# Target a llama.cpp OpenAI-compatible backend instead
+python main.py --init system_manifest.md --backend llamacpp --model nous-hermes-2-mixtral-8x7b-dpo-gguf
+
 # Run a secure network connectivity check against the remote backend
 python main.py --health
 
@@ -82,4 +87,29 @@ python main.py --health
 python main.py
 
 ```
+
+## 🦙 llama.cpp + Nous Hermes 2 setup
+
+Use this path when running `Nous-Hermes-2-Mixtral-8x7B` in GGUF format through `llama-server`.
+
+```bash
+# Example launch (adjust model path and GPU layers for your hardware)
+llama-server \
+  --model /models/Nous-Hermes-2-Mixtral-8x7B-DPO.Q4_K_M.gguf \
+  --ctx-size 8192 \
+  --n-gpu-layers 35 \
+  --port 8080 \
+  --chat-template chatml
+```
+
+Quick smoke test before wiring Kitezh:
+```bash
+curl http://localhost:8080/v1/chat/completions \
+  -H 'Content-Type: application/json' \
+  -d '{"model":"nous-hermes-2-mixtral-8x7b-dpo-gguf","messages":[{"role":"user","content":"hello"}]}'
+```
+
+Notes:
+* For Q4_K_M Mixtral 8x7B, plan for roughly ~26GB combined VRAM/RAM if you want high offload and speed.
+* `llama-server` is OpenAI-compatible, so Letta can point to `http://localhost:8080/v1` in its LLM config.
 ```

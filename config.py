@@ -101,6 +101,12 @@ LETTA_BASE_URL: str = os.environ.get("KITEZH_LETTA_URL", "http://localhost:8283"
 #: Letta agent ID to send initialization prompts to.
 LETTA_AGENT_ID: str = os.environ.get("KITEZH_LETTA_AGENT_ID", "")
 
+#: Base URL for the llama.cpp OpenAI-compatible API.
+LLAMACPP_BASE_URL: str = os.environ.get("KITEZH_LLAMACPP_URL", "http://localhost:8080")
+
+#: llama.cpp model name to target on /v1/chat/completions.
+LLAMACPP_MODEL: str = os.environ.get("KITEZH_LLAMACPP_MODEL", "nous-hermes-2-mixtral-8x7b-dpo-gguf")
+
 # ---------------------------------------------------------------------------
 # Web UI
 # ---------------------------------------------------------------------------
