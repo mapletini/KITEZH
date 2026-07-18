@@ -4,7 +4,8 @@
 # What this script does:
 #   1. Verifies Python 3.11+ is available
 #   2. Creates a virtual environment (.venv) if one does not exist
-#   3. Installs all dependencies from requirements.txt
+#   3. Installs core dependencies from requirements.txt
+#      and best-effort optional wakeword dependencies
 #   4. Generates a .env file (from .env.example) if one does not exist
 #   5. Walks through the key configuration values interactively
 #   6. When the Letta backend is chosen, ensures the Kai agent will be
@@ -22,6 +23,7 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ENV_FILE="${REPO_ROOT}/.env"
 ENV_EXAMPLE="${REPO_ROOT}/.env.example"
 VENV_DIR="${REPO_ROOT}/.venv"
+WAKEWORD_REQUIREMENTS="${REPO_ROOT}/requirements-wakeword.txt"
 HEADLESS_LINUX=0
 
 if [[ "$(uname -s)" == "Linux" ]] && [[ -z "${DISPLAY:-}" ]] && [[ -z "${WAYLAND_DISPLAY:-}" ]]; then
@@ -213,7 +215,17 @@ echo "$(bold "[ 3/5 ]") Installing Python dependencies…"
 info "Running: pip install -r requirements.txt"
 pip install --quiet --upgrade pip
 pip install --quiet -r "${REPO_ROOT}/requirements.txt"
-ok "Dependencies installed."
+ok "Core dependencies installed."
+
+if [[ -f "${WAKEWORD_REQUIREMENTS}" ]]; then
+    info "Attempting optional wakeword dependency install..."
+    if pip install --quiet -r "${WAKEWORD_REQUIREMENTS}"; then
+        ok "Optional wakeword dependencies installed."
+    else
+        warn "Optional openwakeword dependencies could not be installed on this Python/platform."
+        warn "Camera wakeword listening will stay disabled until openwakeword can be installed manually."
+    fi
+fi
 echo ""
 
 # ── Step 4: Generate .env ─────────────────────────────────────────────────────

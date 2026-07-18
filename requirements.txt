@@ -5,9 +5,10 @@ opencv-python-headless
 scipy>=1.11
 fastapi>=0.139.0
 uvicorn[standard]>=0.51.0
+# Optional: local audio playback in interactive mode
 sounddevice
+# Optional: Tapo camera discovery / control
 pytapo>=3.3.10
-openwakeword>=0.6.0
 yt-dlp>=2024.8.6
 # Optional: Letta memory/agent integration (required when KITEZH_LETTA_ENABLED=1)
 letta-client>=0.6.0
