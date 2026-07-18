@@ -9,6 +9,8 @@
 #   5. Walks through the key configuration values interactively
 #   6. When the Letta backend is chosen, ensures the Kai agent will be
 #      auto-created on first engine launch (no manual agent ID needed).
+#   7. On headless Linux, can install a systemd service for framebuffer face
+#      auto-start on boot so the monitor is driven by Kai.
 #
 # Usage:
 #   chmod +x scripts/setup.sh
@@ -75,6 +77,56 @@ set_env() {
         sed "s|^${key}=.*|${key}=${value}|" "${ENV_FILE}" > "$tmp" && mv "$tmp" "${ENV_FILE}"
     else
         echo "${key}=${value}" >> "${ENV_FILE}"
+    fi
+}
+
+# Install and enable a systemd service that drives the framebuffer face on tty2.
+install_framebuffer_service() {
+    local service_name="kitezh-framebuffer-face.service"
+    local service_path="/etc/systemd/system/${service_name}"
+    local unit_tmp
+    local user_name
+    user_name="$(id -un)"
+    unit_tmp="$(mktemp)"
+    cat > "${unit_tmp}" <<EOF
+[Unit]
+Description=Kitezh framebuffer face
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=${user_name}
+WorkingDirectory=${REPO_ROOT}
+Environment=PYTHONUNBUFFERED=1
+Environment=SDL_VIDEODRIVER=kmsdrm
+ExecStartPre=/usr/bin/chvt 2
+ExecStart=${VENV_DIR}/bin/python ${REPO_ROOT}/main.py --framebuffer-face
+Restart=always
+RestartSec=2
+StandardInput=tty
+StandardOutput=journal
+StandardError=journal
+TTYPath=/dev/tty2
+TTYReset=yes
+TTYVHangup=yes
+TTYVTDisallocate=yes
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+    if sudo install -m 0644 "${unit_tmp}" "${service_path}" \
+        && sudo systemctl daemon-reload \
+        && sudo systemctl disable --now getty@tty2.service >/dev/null 2>&1 \
+        && sudo systemctl enable --now "${service_name}"; then
+        ok "Installed and started ${service_name} (tty2 framebuffer takeover enabled)."
+    else
+        warn "Could not auto-install ${service_name}. You can install it manually:"
+        echo "    sudo install -m 0644 ${unit_tmp} ${service_path}"
+        echo "    sudo systemctl daemon-reload"
+        echo "    sudo systemctl disable --now getty@tty2.service"
+        echo "    sudo systemctl enable --now ${service_name}"
     fi
 }
 
@@ -251,6 +303,23 @@ if (( HEADLESS_LINUX == 1 )); then
         ok "Headless Linux detected — set KITEZH_DISPLAY_VIDEO_DRIVER=kmsdrm for framebuffer face."
     else
         info "Headless Linux detected — keeping existing KITEZH_DISPLAY_VIDEO_DRIVER=${current_video_driver}."
+    fi
+
+    if command -v systemctl >/dev/null 2>&1; then
+        echo ""
+        info "Kai can take over the HDMI monitor at boot via a systemd framebuffer service on tty2."
+        if ask_yn "Install and enable the framebuffer face auto-start service?" "y"; then
+            install_framebuffer_service
+            if ask_yn "Disable login prompt on tty1 so Kai can fully own the monitor?" "n"; then
+                if sudo systemctl disable --now getty@tty1.service; then
+                    ok "Disabled getty@tty1.service."
+                else
+                    warn "Could not disable getty@tty1.service. You can run it manually later."
+                fi
+            fi
+        fi
+    else
+        warn "systemctl not found — skipping optional boot-time framebuffer service setup."
     fi
 fi
 
