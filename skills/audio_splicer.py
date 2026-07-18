@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 import numpy as np
+from scipy import signal
 import scipy.io.wavfile as wav
 import yt_dlp
 
@@ -37,7 +38,10 @@ class BumblebeeSplicer:
         return safe_stem
 
     def _fetch_and_snip(self, url: str, start_time: str, end_time: str, filename: str) -> str:
-        """Fetches remote audio and trims it into a normalized local WAV file."""
+        """Fetches remote audio and trims it into a normalized local WAV file.
+
+        Returns an empty string when fetch/trim fails so callers can skip that block.
+        """
         if shutil.which("ffmpeg") is None:
             logger.error("ffmpeg not found in PATH; install ffmpeg to enable scraped audio trimming.")
             return ""
@@ -98,9 +102,7 @@ class BumblebeeSplicer:
                 data = data / peak
             if sample_rate != self.sample_rate and data.size > 0:
                 target_len = max(1, int((len(data) * self.sample_rate) / sample_rate))
-                src_idx = np.linspace(0.0, float(len(data) - 1), num=len(data), dtype=np.float64)
-                dst_idx = np.linspace(0.0, float(len(data) - 1), num=target_len, dtype=np.float64)
-                data = np.interp(dst_idx, src_idx, data)
+                data = signal.resample(data, target_len)
             return data
         except Exception as exc:
             logger.error("Failed to load audio sample %s: %s", file_path, exc)

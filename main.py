@@ -69,6 +69,10 @@ MAX_ARCHIVED_MESSAGE_LENGTH = 200
 LETTA_USER_MESSAGE_PREVIEW = 200
 _AUTONOMY_DREAM_CONSOLIDATION_CYCLES = 24
 _SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?])\s+")
+DEFAULT_AUDIO_DURATION_SECONDS = 1.5
+_MIN_SPOKEN_SEGMENT_SECONDS = 0.6
+_MAX_SPOKEN_SEGMENT_SECONDS = 3.5
+_SECONDS_PER_WORD_ESTIMATE = 0.24
 
 
 def _publish_display_state(
@@ -148,10 +152,14 @@ def load_init_file(path: str) -> str:
 
 
 def _estimate_segment_duration(text: str) -> float:
+    # Duration estimate targets short spoken chunks:
+    # - floor avoids clipped one-word responses
+    # - cap avoids long single-segment playback
+    # - seconds/word is a rough conversational pacing heuristic
     words = len(text.split())
     if words == 0:
-        return 0.6
-    return min(3.5, max(0.6, words * 0.24))
+        return _MIN_SPOKEN_SEGMENT_SECONDS
+    return min(_MAX_SPOKEN_SEGMENT_SECONDS, max(_MIN_SPOKEN_SEGMENT_SECONDS, words * _SECONDS_PER_WORD_ESTIMATE))
 
 
 def build_synthetic_splice_plan(text: str) -> list[dict[str, float | str]]:
@@ -466,9 +474,9 @@ def main(argv: list[str] | None = None) -> int:
                                 splice_plan = build_synthetic_splice_plan(spoken_text)
                                 wave_data = audio_splicer.splice_sequence(splice_plan, synthetic_voice_generator=audio.generate_frame)
                                 if len(wave_data) == 0:
-                                    wave_data = audio.generate_frame(duration=1.5)
+                                    wave_data = audio.generate_frame(duration=DEFAULT_AUDIO_DURATION_SECONDS)
                             else:
-                                wave_data = audio.generate_frame(duration=1.5)
+                                wave_data = audio.generate_frame(duration=DEFAULT_AUDIO_DURATION_SECONDS)
                             sd.play(wave_data, 44100)
                             sd.wait()
 
