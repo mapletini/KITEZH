@@ -41,6 +41,7 @@ from llm_backends import send_to_backend
 from skills.cognitive_architect import LLMCognitiveBridge
 from skills.deep_memory import DeepMemoryCore
 from skills.filesystem import WorkspaceWriter, WorkspaceReader
+from skills.letta_bridge import build_letta_bridge
 from skills.neuro_affect import NeuroChemicalEngine
 from skills.tapo_hub import TapoHub
 
@@ -55,8 +56,11 @@ _MAX_ARCHIVED_MESSAGE_LENGTH = 200
 _DREAM_CONSOLIDATION_INTERVAL_SECONDS = 3600
 _DREAM_CONSOLIDATION_INTERACTION_FREQUENCY = 10
 
+# Letta integration bridge (None when KITEZH_LETTA_ENABLED=0).
+_letta_bridge = build_letta_bridge()
+
 # Core cognition state for web mode.
-_web_memory = DeepMemoryCore(workspace_path=config.WORKSPACE_PATH)
+_web_memory = DeepMemoryCore(workspace_path=config.WORKSPACE_PATH, letta_bridge=_letta_bridge)
 _web_neuro = NeuroChemicalEngine()
 _web_cognitive = LLMCognitiveBridge(_web_memory, _web_neuro)
 _web_interaction_count = 0
@@ -294,9 +298,20 @@ def _process_web_cognitive_loop(user_id: str, display_name: str, user_content: s
     _reinforce_message_concepts(kai_reply)
     _web_cognitive.deliberate()
 
+    # Update Letta's human memory block with a brief user profile summary
+    if _letta_bridge is not None:
+        human_summary = (
+            f"Active user: {display_name} (id={user_id}). "
+            f"Most recent message: {user_content[:200]}"
+        )
+        _letta_bridge.update_human_block(human_summary)
+
     _web_interaction_count += 1
     if _web_interaction_count % _DREAM_CONSOLIDATION_INTERACTION_FREQUENCY == 0:
         _web_memory.execute_dream_consolidation()
+        if _letta_bridge is not None:
+            personality_ctx = _web_memory.synthesize_personality_context()
+            _letta_bridge.send_dream_message(personality_ctx)
 
 
 async def _dream_consolidation_daemon() -> None:
@@ -305,6 +320,9 @@ async def _dream_consolidation_daemon() -> None:
         try:
             _web_memory.execute_dream_consolidation()
             logger.info("Background dream consolidation complete.")
+            if _letta_bridge is not None:
+                personality_ctx = _web_memory.synthesize_personality_context()
+                _letta_bridge.send_dream_message(personality_ctx)
         except Exception as exc:
             logger.exception("Background dream consolidation failed: %s", exc)
 

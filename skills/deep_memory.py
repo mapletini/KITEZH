@@ -81,8 +81,9 @@ class EmotionalGraph:
 # ---------------------------------------------------------------------------
 
 class DeepMemoryCore:
-    def __init__(self, workspace_path: str = "."):
+    def __init__(self, workspace_path: str = ".", letta_bridge=None) -> None:
         self.db_path = os.path.join(workspace_path, "kai_deep_mind.db")
+        self._letta = letta_bridge
         self._initialize_schema()
 
     def _get_connection(self) -> sqlite3.Connection:
@@ -225,6 +226,18 @@ class DeepMemoryCore:
 
         if memory_type == "key":
             logger.info("K.A.I. Flashbulb! Key memory formed: '%s'", content[:80])
+
+        # Mirror to Letta archival store (non-blocking best-effort)
+        if self._letta is not None:
+            self._letta.store_archival(
+                content=content,
+                category=category,
+                emotion_label=complex_label,
+                pad=(float(p), float(a), float(d)),
+                memory_type=memory_type,
+                fidelity=1.0,
+            )
+
         return row_id
 
     # ---------------------------------------------------------------------------
@@ -377,6 +390,18 @@ class DeepMemoryCore:
                 "age_seconds": current_time - mem["timestamp"],
             })
 
+        # Augment with Letta semantic results (best-effort; never displaces local results)
+        if self._letta is not None:
+            emotion_label = EmotionalGraph.calculate_closest_emotion(
+                np.array([target_p, target_a, target_d])
+            )
+            letta_hits = self._letta.search_archival(emotion_label, limit=limit)
+            seen_contents = {r["content"][:100] for r in result}
+            for hit in letta_hits:
+                if hit["content"][:100] not in seen_contents:
+                    result.append(hit)
+                    seen_contents.add(hit["content"][:100])
+
         return result
 
     # ---------------------------------------------------------------------------
@@ -430,6 +455,14 @@ class DeepMemoryCore:
                     tag += f", emotionally recolored: {label}"
                 tag += "]"
                 lines.append(f"  ~ [{row['event_category']}] {row['content']} {tag}")
+
+        # Append Letta semantic archival context when available
+        if self._letta is not None:
+            letta_hits = self._letta.search_archival("personality identity memories", limit=5)
+            if letta_hits:
+                lines.append("\n[Letta Archival Context — Semantic Recall]")
+                for hit in letta_hits:
+                    lines.append(f"  ◈ {hit['content']}")
 
         return "\n".join(lines)
 

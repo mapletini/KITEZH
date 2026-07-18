@@ -36,6 +36,7 @@ from network_hub import RemoteMochiiBridge, namespace_router
 from skills.deep_memory import DeepMemoryCore
 from skills.neuro_affect import NeuroChemicalEngine
 from skills.cognitive_architect import LLMCognitiveBridge
+from skills.letta_bridge import build_letta_bridge
 from skills.tapo_hub import TapoHub
 
 # ---------------------------------------------------------------------------
@@ -72,12 +73,15 @@ def bootstrap_engine() -> tuple[AffectiveEngine, AudioEnvelopeWrapper, LLMCognit
         inertia=0.85,
     )
     audio = AudioEnvelopeWrapper(engine)
-    
-    # 2. Wire up the deep cognitive mind!
-    memory = DeepMemoryCore(workspace_path=".")
+
+    # 2. Letta integration bridge (None when KITEZH_LETTA_ENABLED=0)
+    letta_bridge = build_letta_bridge()
+
+    # 3. Wire up the deep cognitive mind!
+    memory = DeepMemoryCore(workspace_path=".", letta_bridge=letta_bridge)
     neuro = NeuroChemicalEngine()
     cognitive_bridge = LLMCognitiveBridge(memory, neuro)
-    
+
     logger.info("AffectiveEngine and Deep Mind successfully bootstrapped!")
     return engine, audio, cognitive_bridge, neuro
 
@@ -134,6 +138,8 @@ def main(argv: list[str] | None = None) -> int:
     # Bootstrap cognitive engine
     # ------------------------------------------------------------------
     engine, audio, cognitive_bridge, neuro = bootstrap_engine()
+    # Grab the Letta bridge that bootstrap wired into memory (may be None).
+    letta_bridge = cognitive_bridge.memory._letta
 
     # Log a test frame to ensure the synth is working (fixed method name!)
     warmup_frame = audio.generate_frame(duration=0.1)
@@ -263,11 +269,22 @@ def main(argv: list[str] | None = None) -> int:
                     # 5. Trigger the BDI Prefrontal Cortex to deliberate
                     cognitive_bridge.deliberate()
 
+                    # 5a. Update Letta's human memory block with the active user's profile
+                    if letta_bridge is not None:
+                        letta_bridge.update_human_block(
+                            f"Active user: {payload.display_name} (id={payload.user_id}). "
+                            f"Most recent message: {raw[:200]}"
+                        )
+
                     # 6. Every 10 interactions run dream consolidation (fidelity/synapse decay)
                     interaction_count += 1
                     if interaction_count % 10 == 0:
                         cognitive_bridge.memory.execute_dream_consolidation()
                         logger.info("Dream consolidation complete after %d interactions.", interaction_count)
+                        # Forward the personality context to Letta for offline reflection
+                        if letta_bridge is not None:
+                            personality_ctx = cognitive_bridge.memory.synthesize_personality_context()
+                            letta_bridge.send_dream_message(personality_ctx)
 
                     # 7. Play the cyber lilt audio out loud
                     if sd is not None:
