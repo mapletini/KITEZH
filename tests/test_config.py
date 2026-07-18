@@ -26,3 +26,19 @@ class TestEnvHelper(unittest.TestCase):
             value = config._env("MISSING", "OTHER", default="fallback")
         self.assertEqual(value, "fallback")
 
+
+class TestEnvFlagHelper(unittest.TestCase):
+    def test_env_flag_accepts_true_values(self) -> None:
+        with patch.dict(os.environ, {"FLAG": "on"}, clear=False):
+            value = config._env_flag("FLAG", default=False)
+        self.assertTrue(value)
+
+    def test_env_flag_accepts_false_values(self) -> None:
+        with patch.dict(os.environ, {"FLAG": "0"}, clear=False):
+            value = config._env_flag("FLAG", default=True)
+        self.assertFalse(value)
+
+    def test_env_flag_uses_default_for_unknown_values(self) -> None:
+        with patch.dict(os.environ, {"FLAG": "maybe"}, clear=False):
+            value = config._env_flag("FLAG", default=True)
+        self.assertTrue(value)

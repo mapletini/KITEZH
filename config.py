@@ -24,11 +24,27 @@ def _env(primary: str, *aliases: str, default: str) -> str:
     return default
 
 
+def _env_flag(primary: str, *aliases: str, default: bool) -> bool:
+    value = _env(primary, *aliases, default="1" if default else "0").strip().lower()
+    if value in {"1", "true", "yes", "on"}:
+        return True
+    if value in {"0", "false", "no", "off"}:
+        return False
+    return default
+
+
 #: Base URL of the remote FastAPI / Discord backend.
 REMOTE_BASE_URL: str = _env(
     "KITEZH_REMOTE_URL",
     "MOCHII_API_URL",
     default="http://localhost:8000",
+)
+
+#: Toggle for the external remote API bridge.
+REMOTE_ENABLED: bool = _env_flag(
+    "KITEZH_REMOTE_ENABLED",
+    "KITEZH_REMOTE_API_ENABLED",
+    default=True,
 )
 
 #: Secret header value sent with every request to the remote backend.
@@ -128,3 +144,25 @@ LAN_CIDR: str = os.environ.get("KITEZH_LAN_CIDR", "")
 #: Any request whose path starts with this prefix is blocked for loopback and
 #: non-LAN source IPs when KITEZH_LAN_CIDR is configured.
 ADMIN_PATH_PREFIX: str = os.environ.get("KITEZH_ADMIN_PATH_PREFIX", "/api/kai")
+
+# ---------------------------------------------------------------------------
+# Tapo camera integration
+# ---------------------------------------------------------------------------
+
+#: Subnet to scan for Tapo cameras in CIDR notation, e.g. "192.168.1.0/24".
+#: Falls back to KITEZH_LAN_CIDR when unset.  Leave both empty to skip
+#: autodiscovery (a cached registry will still be loaded if present).
+CAMERA_SUBNET: str = os.environ.get("KITEZH_CAMERA_SUBNET", "") or LAN_CIDR
+
+#: Tapo local account username — the email address used in the Tapo app.
+TAPO_USER: str = os.environ.get("KITEZH_TAPO_USER", "")
+
+#: Tapo local device password set on each camera in the Tapo app.
+TAPO_PASSWORD: str = os.environ.get("KITEZH_TAPO_PASSWORD", "")
+
+#: Path to a custom openWakeWord .onnx model file, or a bundled model name
+#: (e.g. "hey_jarvis").  Leave empty to disable wakeword audio listening.
+WAKEWORD_MODEL: str = os.environ.get("KITEZH_WAKEWORD_MODEL", "")
+
+#: Minimum prediction score (0.0–1.0) for a wakeword hit to trigger KAI.
+WAKEWORD_THRESHOLD: float = float(os.environ.get("KITEZH_WAKEWORD_THRESHOLD", "0.5"))
