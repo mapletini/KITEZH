@@ -148,7 +148,9 @@ def load_init_file(path: str) -> str:
 
 
 def _estimate_segment_duration(text: str) -> float:
-    words = max(1, len(text.split()))
+    words = len(text.split())
+    if words == 0:
+        return 0.6
     return min(3.5, max(0.6, words * 0.24))
 
 
@@ -459,8 +461,9 @@ def main(argv: list[str] | None = None) -> int:
                             )
 
                         if sd is not None:
+                            spoken_text = reply_text if context_data is not None else ""
                             if audio_splicer is not None:
-                                splice_plan = build_synthetic_splice_plan(reply_text if context_data is not None else "")
+                                splice_plan = build_synthetic_splice_plan(spoken_text)
                                 wave_data = audio_splicer.splice_sequence(splice_plan, synthetic_voice_generator=audio.generate_frame)
                                 if len(wave_data) == 0:
                                     wave_data = audio.generate_frame(duration=1.5)

@@ -39,7 +39,7 @@ class BumblebeeSplicer:
     def _fetch_and_snip(self, url: str, start_time: str, end_time: str, filename: str) -> str:
         """Fetches remote audio and trims it into a normalized local WAV file."""
         if shutil.which("ffmpeg") is None:
-            logger.error("ffmpeg is not installed; cannot trim scraped audio blocks.")
+            logger.error("ffmpeg not found in PATH; install ffmpeg to enable scraped audio trimming.")
             return ""
 
         output_name = self._normalize_filename(filename, "scraped_clip")
@@ -47,7 +47,7 @@ class BumblebeeSplicer:
         if final_path.exists():
             return str(final_path)
 
-        with tempfile.TemporaryDirectory(prefix="kitezh_audio_splicer_") as temp_dir:
+        with tempfile.TemporaryDirectory(prefix="bumblebee_splicer_") as temp_dir:
             temp_base = Path(temp_dir) / "downloaded_input"
             ydl_opts = {
                 "format": "bestaudio/best",
