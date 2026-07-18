@@ -18,10 +18,8 @@ from __future__ import annotations
 import argparse
 import logging
 import sys
+from contextlib import nullcontext
 from pathlib import Path
-from typing import Any
-
-import requests
 
 try:
     import sounddevice as sd
@@ -31,6 +29,7 @@ except ImportError:
 
 import config
 from affective_core import AffectiveEngine, AudioEnvelopeWrapper, PADState
+from llm_backends import send_to_backend, send_to_letta, send_to_llamacpp, send_to_ollama
 from network_hub import RemoteMochiiBridge, namespace_router
 
 # Import K.A.I.'s shiny new eanchainn [brain] components!
@@ -51,96 +50,6 @@ logging.basicConfig(
 logger = logging.getLogger("kitezh.main")
 
 MAX_ARCHIVED_MESSAGE_LENGTH = 200
-
-# ---------------------------------------------------------------------------
-# LLM backend helpers
-# ---------------------------------------------------------------------------
-
-def send_to_ollama(prompt: str, model: str | None = None) -> str:
-    """Send *prompt* to the Ollama REST API and return the generated text."""
-    target_model = model or config.OLLAMA_MODEL
-    url = f"{config.OLLAMA_BASE_URL}/api/generate"
-    payload: dict[str, Any] = {
-        "model": target_model,
-        "prompt": prompt,
-        "stream": False,
-    }
-
-    logger.info("Sending init prompt to Ollama (model=%s, url=%s)", target_model, url)
-    try:
-        resp = requests.post(url, json=payload, timeout=120)
-        resp.raise_for_status()
-        return resp.json().get("response", "")
-    except requests.exceptions.ConnectionError as exc:
-        raise RuntimeError(
-            f"Cannot connect to Ollama at '{config.OLLAMA_BASE_URL}'. "
-            "Is the Ollama server running?"
-        ) from exc
-    except requests.exceptions.RequestException as exc:
-        raise RuntimeError(f"Ollama request failed: {exc}") from exc
-
-def send_to_letta(prompt: str, agent_id: str | None = None) -> str:
-    """Send *prompt* to the Letta REST API and return the assistant's reply."""
-    target_agent = agent_id or config.LETTA_AGENT_ID
-    if not target_agent:
-        raise RuntimeError(
-            "KITEZH_LETTA_AGENT_ID is not set. "
-            "Set it via the environment variable or --agent-id flag."
-        )
-
-    url = f"{config.LETTA_BASE_URL}/v1/agents/{target_agent}/messages"
-    payload: dict[str, Any] = {
-        "messages": [{"role": "user", "content": prompt}]
-    }
-
-    logger.info("Sending init prompt to Letta (agent=%s, url=%s)", target_agent, url)
-    try:
-        resp = requests.post(url, json=payload, timeout=120)
-        resp.raise_for_status()
-        data = resp.json()
-        messages = data.get("messages", [])
-        for msg in messages:
-            if msg.get("role") == "assistant":
-                return msg.get("content", "")
-        return str(data)
-    except requests.exceptions.ConnectionError as exc:
-        raise RuntimeError(
-            f"Cannot connect to Letta at '{config.LETTA_BASE_URL}'. "
-            "Is the Letta server running?"
-        ) from exc
-    except requests.exceptions.RequestException as exc:
-        raise RuntimeError(f"Letta request failed: {exc}") from exc
-
-def send_to_llamacpp(prompt: str, model: str | None = None) -> str:
-    """Send *prompt* to a llama.cpp OpenAI-compatible endpoint and return text."""
-    target_model = model or config.LLAMACPP_MODEL
-    url = f"{config.LLAMACPP_BASE_URL}/v1/chat/completions"
-    payload: dict[str, Any] = {
-        "model": target_model,
-        "messages": [
-            {"role": "system", "content": "You are a helpful assistant."},
-            {"role": "user", "content": prompt},
-        ],
-        "stream": False,
-    }
-
-    logger.info("Sending init prompt to llama.cpp (model=%s, url=%s)", target_model, url)
-    try:
-        resp = requests.post(url, json=payload, timeout=120)
-        resp.raise_for_status()
-        data = resp.json()
-        choices = data.get("choices", [])
-        if not choices:
-            return str(data)
-        message = choices[0].get("message", {})
-        return message.get("content", "") or str(data)
-    except requests.exceptions.ConnectionError as exc:
-        raise RuntimeError(
-            f"Cannot connect to llama.cpp server at '{config.LLAMACPP_BASE_URL}'. "
-            "Is llama-server running?"
-        ) from exc
-    except requests.exceptions.RequestException as exc:
-        raise RuntimeError(f"llama.cpp request failed: {exc}") from exc
 
 def load_init_file(path: str) -> str:
     """Read and return the contents of an initialization Markdown file."""
@@ -212,6 +121,9 @@ def main(argv: list[str] | None = None) -> int:
     # Health check mode
     # ------------------------------------------------------------------
     if args.health:
+        if not config.REMOTE_ENABLED:
+            print("Remote backend: disabled (set KITEZH_REMOTE_ENABLED=1 to enable)")
+            return 0
         with RemoteMochiiBridge() as bridge:
             ok = bridge.health_check()
         status = "reachable ✓" if ok else "UNREACHABLE ✗"
@@ -244,12 +156,7 @@ def main(argv: list[str] | None = None) -> int:
             return 1
 
         try:
-            if args.backend == "ollama":
-                response = send_to_ollama(prompt, model=args.model)
-            elif args.backend == "llamacpp":
-                response = send_to_llamacpp(prompt, model=args.model)
-            else:
-                response = send_to_letta(prompt, agent_id=args.agent_id)
+            response = send_to_backend(prompt, backend=args.backend, model=args.model, agent_id=args.agent_id)
             print("─" * 60)
             print(f"[{args.backend.upper()} RESPONSE]")
             print(response)
@@ -263,8 +170,11 @@ def main(argv: list[str] | None = None) -> int:
     # ------------------------------------------------------------------
     else:
         logger.info("Kitezh engine ready. Type a message or Ctrl-C to quit.")
+        if not config.REMOTE_ENABLED:
+            logger.info("Remote bridge disabled; interactive replies will use the %s backend.", args.backend)
         interaction_count = 0
-        with RemoteMochiiBridge() as bridge:
+        bridge_context = RemoteMochiiBridge() if config.REMOTE_ENABLED else nullcontext(None)
+        with bridge_context as bridge:
             try:
                 while True:
                     try:
@@ -281,26 +191,44 @@ def main(argv: list[str] | None = None) -> int:
                         content=raw,
                     )
                     neuro.set_active_user(payload.user_id)
-                    ctx = bridge.query_context(payload)
 
-                    if ctx.success:
-                        print(f"kitezh › {ctx.data}")
+                    context_data: dict[str, object] | None = None
+                    if bridge is not None:
+                        ctx = bridge.query_context(payload)
+                        if ctx.success:
+                            print(f"kitezh › {ctx.data}")
+                            context_data = ctx.data
+                        else:
+                            print(f"[remote error] {ctx.error}")
+                            neuro.apply_stimulus(uncertainty=0.15, frustration=0.05, user_id=payload.user_id)
+                    else:
+                        try:
+                            local_reply = send_to_backend(
+                                payload.content,
+                                backend=args.backend,
+                                model=args.model,
+                                agent_id=args.agent_id,
+                            )
+                            print(f"kitezh › {local_reply}")
+                            context_data = {"reply": local_reply, "source": f"local:{args.backend}"}
+                        except RuntimeError as exc:
+                            print(f"[local backend error] {exc}")
+                            neuro.apply_stimulus(uncertainty=0.15, frustration=0.05, user_id=payload.user_id)
+
+                    if context_data is not None:
                         sync_payload = {
                             "user_id": payload.user_id,
                             "platform": payload.platform,
                             "content": payload.content,
                             "metadata": payload.metadata,
-                            "context": ctx.data,
+                            "context": context_data,
                         }
                         cognitive_bridge.synchronize_attachment(sync_payload)
-                    else:
-                        print(f"[remote error] {ctx.error}")
-                        neuro.apply_stimulus(uncertainty=0.15, frustration=0.05, user_id=payload.user_id)
 
                     # --- K.A.I.'S COGNITIVE PROCESS ---
 
                     # 1. Trigger a chemical reaction based on successful communication
-                    if ctx.success:
+                    if context_data is not None:
                         neuro.apply_stimulus(reward=0.1, success=0.2, user_id=payload.user_id)
 
                     # 2. Convert raw chemicals into PAD coordinates and push them to the engine

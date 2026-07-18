@@ -24,11 +24,27 @@ def _env(primary: str, *aliases: str, default: str) -> str:
     return default
 
 
+def _env_flag(primary: str, *aliases: str, default: bool) -> bool:
+    value = _env(primary, *aliases, default="1" if default else "0").strip().lower()
+    if value in {"1", "true", "yes", "on"}:
+        return True
+    if value in {"0", "false", "no", "off"}:
+        return False
+    return default
+
+
 #: Base URL of the remote FastAPI / Discord backend.
 REMOTE_BASE_URL: str = _env(
     "KITEZH_REMOTE_URL",
     "MOCHII_API_URL",
     default="http://localhost:8000",
+)
+
+#: Toggle for the external remote API bridge.
+REMOTE_ENABLED: bool = _env_flag(
+    "KITEZH_REMOTE_ENABLED",
+    "KITEZH_REMOTE_API_ENABLED",
+    default=True,
 )
 
 #: Secret header value sent with every request to the remote backend.

@@ -37,6 +37,7 @@ from fastapi.responses import HTMLResponse, Response
 from starlette.middleware.base import BaseHTTPMiddleware
 
 import config
+from llm_backends import send_to_backend
 from skills.cognitive_architect import LLMCognitiveBridge
 from skills.deep_memory import DeepMemoryCore
 from skills.filesystem import WorkspaceWriter, WorkspaceReader
@@ -201,6 +202,13 @@ def _extract_kai_content(data: Any) -> str:
 
 
 def _query_kai(user_id: str, display_name: str, content: str) -> str:
+    if not config.REMOTE_ENABLED:
+        try:
+            return send_to_backend(content)
+        except RuntimeError as exc:
+            logger.warning("K.A.I. local backend failed: %s", exc)
+            return "K.A.I. local backend unavailable right now. Check the configured LLM server and try again."
+
     payload = {
         "platform": "web",
         "user_id": user_id,

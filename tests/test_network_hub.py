@@ -69,6 +69,11 @@ class TestBridgeFailures(unittest.TestCase):
         bridge = network_hub.RemoteMochiiBridge(base_url="http://[::1]:8000", ai_key="changeme")
         self.assertIsNotNone(bridge)
 
+    def test_bridge_skips_remote_validation_when_disabled(self) -> None:
+        with patch.object(network_hub.config, "REMOTE_ENABLED", False):
+            bridge = network_hub.RemoteMochiiBridge(base_url="https://example.com", ai_key="changeme")
+        self.assertIsNotNone(bridge)
+
     def test_query_context_returns_timeout_error(self) -> None:
         bridge = network_hub.RemoteMochiiBridge(base_url="http://localhost:9999", ai_key="test")
         with patch.object(bridge, "_post", side_effect=ReadTimeout()):
@@ -98,3 +103,10 @@ class TestBridgeFailures(unittest.TestCase):
             )
         self.assertFalse(result.success)
         self.assertIn("Invalid JSON response", result.error or "")
+
+    def test_query_context_returns_disabled_error_when_remote_off(self) -> None:
+        with patch.object(network_hub.config, "REMOTE_ENABLED", False):
+            bridge = network_hub.RemoteMochiiBridge(base_url="https://example.com", ai_key="changeme")
+            result = bridge.query_context(network_hub.UserPayload("cli", "u1", "User", "hello"))
+        self.assertFalse(result.success)
+        self.assertEqual(result.error, network_hub.REMOTE_DISABLED_ERROR)

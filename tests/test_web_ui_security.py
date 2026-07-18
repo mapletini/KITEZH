@@ -73,6 +73,16 @@ class TestConceptExtraction(unittest.TestCase):
         self.assertEqual(result, {"emotion": {"label": "joy"}})
 
 
+class TestKaiQuery(unittest.TestCase):
+    def test_query_kai_uses_local_backend_when_remote_disabled(self) -> None:
+        with patch.object(web_ui.config, "REMOTE_ENABLED", False), patch.object(
+            web_ui, "send_to_backend", return_value="local reply"
+        ) as send_to_backend:
+            result = web_ui._query_kai("user-1", "User", "hello")
+        self.assertEqual(result, "local reply")
+        send_to_backend.assert_called_once_with("hello")
+
+
 class TestSeedBelief(unittest.TestCase):
     def test_seed_belief_rejects_empty_fields(self) -> None:
         with self.assertRaises(HTTPException) as ctx:

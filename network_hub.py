@@ -24,6 +24,7 @@ import config
 logger = logging.getLogger(__name__)
 
 Clearance = Literal["admin", "guest"]
+REMOTE_DISABLED_ERROR = "Remote API bridge is disabled by configuration."
 
 @dataclass
 class UserPayload:
@@ -60,6 +61,7 @@ class RemoteMochiiBridge:
         ai_key: str = config.AI_KEY,
         timeout: float = config.REQUEST_TIMEOUT,
     ) -> None:
+        self._enabled = config.REMOTE_ENABLED
         self._base_url = base_url.rstrip("/")
         self._timeout = timeout
         self._signing_secret = config.COMMAND_SIGNING_SECRET
@@ -71,6 +73,9 @@ class RemoteMochiiBridge:
                 "Accept": "application/json",
             }
         )
+        if not self._enabled:
+            logger.info("Remote bridge disabled; skipping remote backend validation.")
+            return
         if ai_key in config.INSECURE_AI_KEYS:
             if not _is_local_base_url(self._base_url):
                 raise ValueError("Refusing insecure default AI key for non-local remote backend.")
@@ -128,6 +133,8 @@ class RemoteMochiiBridge:
     # ------------------------------------------------------------------
 
     def query_context(self, payload: UserPayload) -> ContextResponse:
+        if not self._enabled:
+            return ContextResponse(success=False, error=REMOTE_DISABLED_ERROR)
         body: dict[str, Any] = {
             "platform": payload.platform,
             "user_id": payload.user_id,
@@ -163,6 +170,8 @@ class RemoteMochiiBridge:
 
     def health_check(self) -> bool:
         """Return True when remote /health responds with a non-error status."""
+        if not self._enabled:
+            return False
         try:
             resp = self._get("/health")
             return resp.status_code < 400

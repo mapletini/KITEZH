@@ -3,6 +3,7 @@ from unittest.mock import Mock, patch
 
 import requests
 
+import llm_backends
 import main
 
 
@@ -22,7 +23,7 @@ class TestLlamaCppBackend(unittest.TestCase):
         }
         with patch.object(main.config, "LLAMACPP_BASE_URL", "http://localhost:8080"), patch.object(
             main.config, "LLAMACPP_MODEL", "nous-hermes-2-mixtral-8x7b-dpo-gguf"
-        ), patch.object(main.requests, "post", return_value=fake_response) as mocked_post:
+        ), patch.object(llm_backends.requests, "post", return_value=fake_response) as mocked_post:
             result = main.send_to_llamacpp("test prompt")
 
         self.assertEqual(result, "hello from llama.cpp")
@@ -32,10 +33,16 @@ class TestLlamaCppBackend(unittest.TestCase):
         self.assertEqual(call_kwargs["json"]["messages"][1]["content"], "test prompt")
 
     def test_send_to_llamacpp_raises_runtime_error_on_connection_failure(self) -> None:
-        with patch.object(main.requests, "post", side_effect=requests.exceptions.ConnectionError("offline")):
+        with patch.object(llm_backends.requests, "post", side_effect=requests.exceptions.ConnectionError("offline")):
             with self.assertRaises(RuntimeError) as captured:
                 main.send_to_llamacpp("test prompt")
         self.assertIn("Cannot connect to llama.cpp server", str(captured.exception))
+
+    def test_main_health_exits_cleanly_when_remote_disabled(self) -> None:
+        with patch.object(main.config, "REMOTE_ENABLED", False), patch("builtins.print") as mock_print:
+            exit_code = main.main(["--health"])
+        self.assertEqual(exit_code, 0)
+        mock_print.assert_called_once_with("Remote backend: disabled (set KITEZH_REMOTE_ENABLED=1 to enable)")
 
 
 if __name__ == "__main__":
