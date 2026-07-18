@@ -223,7 +223,7 @@ if [[ -f "${WAKEWORD_REQUIREMENTS}" ]]; then
         ok "Optional wakeword dependencies installed."
     else
         warn "Optional OpenWakeWord dependencies could not be installed on this Python/platform."
-        warn "Camera wake word listening will stay disabled until OpenWakeWord can be installed manually."
+        warn "Camera wakeword listening will stay disabled until OpenWakeWord can be installed manually."
     fi
 fi
 echo ""
