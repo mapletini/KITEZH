@@ -51,6 +51,10 @@ try:
     from skills.tapo_hub import TapoHub
 except ImportError:
     TapoHub = None
+try:
+    from skills.llamacpp_server import LlamaCppServer
+except ImportError:
+    LlamaCppServer = None
 
 # ---------------------------------------------------------------------------
 # Logging setup
@@ -231,6 +235,22 @@ def build_arg_parser() -> argparse.ArgumentParser:
         default=None,
         help="Directory containing reusable WAV clips for audio splicer mode.",
     )
+    parser.add_argument(
+        "--llama-server",
+        action="store_true",
+        help="Auto-start a llama-server subprocess for the llamacpp backend (requires KITEZH_LLAMACPP_MODEL_PATH or --llama-server-model).",
+    )
+    parser.add_argument(
+        "--llama-server-model",
+        metavar="PATH",
+        default=None,
+        help="Path to the .gguf model file for the managed llama-server (overrides KITEZH_LLAMACPP_MODEL_PATH).",
+    )
+    parser.add_argument(
+        "--with-serve",
+        action="store_true",
+        help="Also launch the K.A.I. web chat interface in the background while running in CLI / init-file mode.",
+    )
     parser.add_argument("--verbose", action="store_true", help="Enable DEBUG-level logging.")
     return parser
 
@@ -274,6 +294,34 @@ def main(argv: list[str] | None = None) -> int:
     # ------------------------------------------------------------------
     # Bootstrap cognitive engine
     # ------------------------------------------------------------------
+
+    # --- llama-server auto-start (llamacpp backend) ---
+    llama_server = None
+    want_llama_server = args.llama_server or config.LLAMACPP_AUTOSTART
+    if want_llama_server:
+        if args.backend != "llamacpp":
+            logger.warning(
+                "--llama-server / KITEZH_LLAMACPP_AUTOSTART has no effect with backend '%s'; "
+                "only the 'llamacpp' backend uses a managed llama-server.",
+                args.backend,
+            )
+        else:
+            if LlamaCppServer is None:
+                logger.error("LlamaCppServer module is unavailable; cannot auto-start llama-server.")
+                return 1
+            model_path = args.llama_server_model or config.LLAMACPP_MODEL_PATH
+            try:
+                llama_server = LlamaCppServer(model_path=model_path)
+                llama_server.start()
+            except RuntimeError as exc:
+                logger.error("Failed to start llama-server: %s", exc)
+                return 1
+
+    # --- Web UI background start ---
+    if args.with_serve or config.WEB_AUTOSTART:
+        from web_ui import start_background as _start_web_bg
+        _start_web_bg(port=args.port)
+
     engine, audio, cognitive_bridge, neuro = bootstrap_engine()
     audio_splicer = None
     enable_audio_splicer = args.audio_splicer or config.AUDIO_SPLICER_ENABLED
@@ -310,6 +358,8 @@ def main(argv: list[str] | None = None) -> int:
             prompt = load_init_file(args.init)
         except FileNotFoundError as exc:
             logger.error("%s", exc)
+            if llama_server is not None:
+                llama_server.stop()
             return 1
 
         try:
@@ -320,6 +370,8 @@ def main(argv: list[str] | None = None) -> int:
             print("─" * 60)
         except RuntimeError as exc:
             logger.error("%s", exc)
+            if llama_server is not None:
+                llama_server.stop()
             return 1
 
     # ------------------------------------------------------------------
@@ -491,6 +543,15 @@ def main(argv: list[str] | None = None) -> int:
                 _publish_display_state(display_bridge, cognitive_bridge, neuro, mode="idle", message="Kai is resting.")
                 if tapo_hub is not None:
                     tapo_hub.stop()
+                if llama_server is not None:
+                    llama_server.stop()
+
+    # Unconditional cleanup: stop the managed llama-server when leaving main().
+    # For the interactive loop the server is also stopped in the keyboard-interrupt
+    # finally block above; stop() is idempotent so calling it twice is harmless.
+    # This line covers init-file mode (success) and any unexpected exception paths.
+    if llama_server is not None:
+        llama_server.stop()
 
     return 0
 
