@@ -245,7 +245,7 @@ set_env "KITEZH_LAN_CIDR" "${lan_cidr}"
 # ── Headless display defaults ──────────────────────────────────────────────────
 
 if (( HEADLESS_LINUX == 1 )); then
-    current_video_driver=$(grep -E "^KITEZH_DISPLAY_VIDEO_DRIVER=" "${ENV_FILE}" | cut -d= -f2 || echo "")
+    current_video_driver=$(grep -E "^KITEZH_DISPLAY_VIDEO_DRIVER=" "${ENV_FILE}" 2>/dev/null | tail -n1 | cut -d= -f2 || echo "")
     if [[ -z "${current_video_driver}" ]]; then
         set_env "KITEZH_DISPLAY_VIDEO_DRIVER" "kmsdrm"
         ok "Headless Linux detected — set KITEZH_DISPLAY_VIDEO_DRIVER=kmsdrm for framebuffer face."
