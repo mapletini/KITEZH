@@ -118,16 +118,19 @@ EOF
 
     if sudo install -m 0644 "${unit_tmp}" "${service_path}" \
         && sudo systemctl daemon-reload \
-        && sudo systemctl disable --now getty@tty2.service >/dev/null 2>&1 \
+        && (sudo systemctl disable --now getty@tty2.service >/dev/null 2>&1 || true) \
         && sudo systemctl enable --now "${service_name}"; then
         ok "Installed and started ${service_name} (tty2 framebuffer takeover enabled)."
     else
+        local manual_unit="/tmp/${service_name}"
+        cp "${unit_tmp}" "${manual_unit}"
         warn "Could not auto-install ${service_name}. You can install it manually:"
-        echo "    sudo install -m 0644 ${unit_tmp} ${service_path}"
+        echo "    sudo install -m 0644 ${manual_unit} ${service_path}"
         echo "    sudo systemctl daemon-reload"
         echo "    sudo systemctl disable --now getty@tty2.service"
         echo "    sudo systemctl enable --now ${service_name}"
     fi
+    rm -f "${unit_tmp}"
 }
 
 # ── Banner ────────────────────────────────────────────────────────────────────
