@@ -25,9 +25,9 @@ from pathlib import Path
 
 try:
     import sounddevice as sd
-except ImportError:
+except (ImportError, OSError):
     sd = None
-    print("Warning: 'sounddevice' module not found. Audio will be disabled. Run 'pip install sounddevice numpy'")
+    print("Warning: 'sounddevice' is unavailable. Audio will be disabled. Install sounddevice and PortAudio to enable playback.")
 
 import config
 from affective_core import AffectiveEngine, AudioEnvelopeWrapper, PADState
