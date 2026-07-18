@@ -41,6 +41,7 @@ from skills.cognitive_architect import LLMCognitiveBridge
 from skills.deep_memory import DeepMemoryCore
 from skills.filesystem import WorkspaceWriter, WorkspaceReader
 from skills.neuro_affect import NeuroChemicalEngine
+from skills.tapo_hub import TapoHub
 
 logger = logging.getLogger(__name__)
 
@@ -58,6 +59,9 @@ _web_memory = DeepMemoryCore(workspace_path=config.WORKSPACE_PATH)
 _web_neuro = NeuroChemicalEngine()
 _web_cognitive = LLMCognitiveBridge(_web_memory, _web_neuro)
 _web_interaction_count = 0
+
+# Tapo camera hub — wired to the web-mode neuro engine.
+_tapo_hub = TapoHub(neuro=_web_neuro)
 
 # Keep concept tokens at 4+ chars to reduce low-signal function words.
 _CONCEPT_TOKEN_RE = re.compile(r"[A-Za-z][A-Za-z0-9_-]{3,}")
@@ -306,6 +310,7 @@ _init_chat_db()
 
 @asynccontextmanager
 async def _lifespan(_: FastAPI):
+    _tapo_hub.start()
     background_task = asyncio.create_task(_dream_consolidation_daemon())
     try:
         yield
@@ -313,6 +318,7 @@ async def _lifespan(_: FastAPI):
         background_task.cancel()
         with suppress(asyncio.CancelledError):
             await background_task
+        _tapo_hub.stop()
 
 
 app = FastAPI(title="K.A.I. Chat Interface", docs_url=None, redoc_url=None, lifespan=_lifespan)

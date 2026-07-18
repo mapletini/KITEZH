@@ -4,3 +4,5 @@ pyflakes>=3.0
 opencv-python-headless
 fastapi>=0.139.0
 uvicorn[standard]>=0.51.0
+pytapo>=3.3.10
+openwakeword>=0.6.0

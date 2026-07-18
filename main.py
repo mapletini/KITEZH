@@ -37,6 +37,7 @@ from network_hub import RemoteMochiiBridge, namespace_router
 from skills.deep_memory import DeepMemoryCore
 from skills.neuro_affect import NeuroChemicalEngine
 from skills.cognitive_architect import LLMCognitiveBridge
+from skills.tapo_hub import TapoHub
 
 # ---------------------------------------------------------------------------
 # Logging setup
@@ -227,6 +228,12 @@ def main(argv: list[str] | None = None) -> int:
     logger.info("Audio envelope initialized properly.")
 
     # ------------------------------------------------------------------
+    # Start Tapo camera hub (wakeword listening + autodiscovery)
+    # ------------------------------------------------------------------
+    tapo_hub = TapoHub(neuro=neuro)
+    tapo_hub.start()
+
+    # ------------------------------------------------------------------
     # Init-file → LLM backend
     # ------------------------------------------------------------------
     if args.init:
@@ -341,6 +348,8 @@ def main(argv: list[str] | None = None) -> int:
 
             except KeyboardInterrupt:
                 print("\nGoodbye.")
+            finally:
+                tapo_hub.stop()
 
     return 0
 
