@@ -34,7 +34,7 @@ def send_to_ollama(prompt: str, model: str | None = None) -> str:
             f"Cannot connect to Ollama at '{config.OLLAMA_BASE_URL}'. "
             "Is the Ollama server running?"
         ) from exc
-    except ValueError as exc:
+    except requests.exceptions.JSONDecodeError as exc:
         raise RuntimeError(
             f"Ollama at '{config.OLLAMA_BASE_URL}' returned invalid JSON."
         ) from exc
@@ -71,7 +71,7 @@ def send_to_letta(prompt: str, agent_id: str | None = None) -> str:
             f"Cannot connect to Letta at '{config.LETTA_BASE_URL}'. "
             "Is the Letta server running?"
         ) from exc
-    except ValueError as exc:
+    except requests.exceptions.JSONDecodeError as exc:
         raise RuntimeError(
             f"Letta at '{config.LETTA_BASE_URL}' returned invalid JSON."
         ) from exc
@@ -107,7 +107,7 @@ def send_to_llamacpp(prompt: str, model: str | None = None) -> str:
             f"Cannot connect to llama.cpp server at '{config.LLAMACPP_BASE_URL}'. "
             "Is llama-server running?"
         ) from exc
-    except ValueError as exc:
+    except requests.exceptions.JSONDecodeError as exc:
         raise RuntimeError(
             f"llama.cpp server at '{config.LLAMACPP_BASE_URL}' returned invalid JSON."
         ) from exc

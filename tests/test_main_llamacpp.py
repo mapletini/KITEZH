@@ -41,7 +41,7 @@ class TestLlamaCppBackend(unittest.TestCase):
     def test_send_to_llamacpp_raises_runtime_error_on_invalid_json(self) -> None:
         fake_response = Mock()
         fake_response.raise_for_status.return_value = None
-        fake_response.json.side_effect = ValueError("bad json")
+        fake_response.json.side_effect = requests.exceptions.JSONDecodeError("bad json", "{}", 0)
         with patch.object(llm_backends.requests, "post", return_value=fake_response):
             with self.assertRaises(RuntimeError) as captured:
                 llm_backends.send_to_llamacpp("test prompt")
@@ -81,7 +81,7 @@ class TestLlamaCppBackend(unittest.TestCase):
     def test_main_init_llamacpp_returns_error_on_invalid_json(self) -> None:
         fake_response = Mock()
         fake_response.raise_for_status.return_value = None
-        fake_response.json.side_effect = ValueError("bad json")
+        fake_response.json.side_effect = requests.exceptions.JSONDecodeError("bad json", "{}", 0)
         with patch.object(main.config, "REMOTE_ENABLED", False), \
              patch.object(llm_backends.requests, "post", return_value=fake_response), \
              patch("builtins.print"):
