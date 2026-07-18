@@ -1,0 +1,20 @@
+{
+  "timestamp": 1784402552.391712,
+  "version": 0,
+  "mode": "idle",
+  "emotion": {
+    "label": "neutral",
+    "pad": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "intensity": 0.0
+  },
+  "desires": [],
+  "intentions": [],
+  "narrative": "Kai is quiet but present.",
+  "preferences": [],
+  "relationship": {},
+  "message": ""
+}
