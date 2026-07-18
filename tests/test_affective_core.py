@@ -4,8 +4,6 @@ import numpy as np
 
 from affective_core import AffectiveEngine, AudioEnvelopeWrapper, PADState
 
-_NORMALIZATION_TOLERANCE = 1e-9
-
 
 class TestAffectiveCore(unittest.TestCase):
     def test_pad_state_clamps_values(self) -> None:
@@ -23,6 +21,10 @@ class TestAffectiveCore(unittest.TestCase):
 
 
 class TestAudioEnvelopeWrapper(unittest.TestCase):
+    # Floating-point tolerance for the normalization upper-bound check.
+    # generate_frame divides by max(abs(frame)), so the result should never
+    # exceed 1.0; the tiny epsilon guards against rounding at the ULP boundary.
+    _NORMALIZATION_TOLERANCE = 1e-9
     def _make_wrapper(self) -> AudioEnvelopeWrapper:
         engine = AffectiveEngine(initial_state=PADState(0.2, 0.1, 0.0), inertia=0.85)
         return AudioEnvelopeWrapper(engine)
@@ -58,5 +60,5 @@ class TestAudioEnvelopeWrapper(unittest.TestCase):
         wrapper = self._make_wrapper()
         frame = wrapper.generate_frame(duration=0.5)
         self.assertIsInstance(frame, np.ndarray)
-        self.assertLessEqual(float(np.max(np.abs(frame))), 1.0 + _NORMALIZATION_TOLERANCE)
+        self.assertLessEqual(float(np.max(np.abs(frame))), 1.0 + self._NORMALIZATION_TOLERANCE)
 
