@@ -6,10 +6,11 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 from typing import Any
 
 import requests
+
+import config
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +32,7 @@ class LLMCognitiveBridge:
         self.memory = memory_core
         self.neuro = neuro_engine
         self.model = model_name
-        self.ollama_url = os.getenv("OLLAMA_URL", "http://localhost:11434")
+        self.ollama_url = config.OLLAMA_BASE_URL
         self.current_intentions: list[str] = []
         self.current_desires: list[str] = []
         self.last_narrative: str = "Kai is present and waiting."
