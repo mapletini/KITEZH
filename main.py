@@ -50,6 +50,15 @@ logging.basicConfig(
 logger = logging.getLogger("kitezh.main")
 
 MAX_ARCHIVED_MESSAGE_LENGTH = 200
+__all__ = [
+    "build_arg_parser",
+    "load_init_file",
+    "main",
+    "send_to_backend",
+    "send_to_letta",
+    "send_to_llamacpp",
+    "send_to_ollama",
+]
 
 def load_init_file(path: str) -> str:
     """Read and return the contents of an initialization Markdown file."""
@@ -136,7 +145,7 @@ def main(argv: list[str] | None = None) -> int:
     engine, audio, cognitive_bridge, neuro = bootstrap_engine()
 
     # Log a test frame to ensure the synth is working (fixed method name!)
-    test_frame = audio.generate_frame(duration=0.1)
+    audio.generate_frame(duration=0.1)
     logger.info("Audio envelope initialized properly.")
 
     # ------------------------------------------------------------------
