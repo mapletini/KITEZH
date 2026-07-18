@@ -695,5 +695,24 @@ def start(host: str = "0.0.0.0", port: int | None = None) -> None:
     uvicorn.run(app, host=host, port=port or config.WEB_PORT, log_level="info")
 
 
+def start_background(host: str = "0.0.0.0", port: int | None = None) -> None:
+    """Start the Uvicorn server in a background daemon thread.
+
+    Returns immediately; the web server keeps running until the main process
+    exits.  Used by ``main.py --with-serve`` to run the web UI alongside the
+    interactive CLI or init-file mode.
+    """
+    import threading
+
+    resolved_port = port or config.WEB_PORT
+
+    def _run() -> None:
+        uvicorn.run(app, host=host, port=resolved_port, log_level="info")
+
+    thread = threading.Thread(target=_run, name="kai-webui", daemon=True)
+    thread.start()
+    logger.info("Web chat server started in background on port %d.", resolved_port)
+
+
 if __name__ == "__main__":
     start()

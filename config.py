@@ -136,6 +136,27 @@ LLAMACPP_BASE_URL: str = os.environ.get("KITEZH_LLAMACPP_URL", "http://localhost
 #: llama.cpp model name to target on /v1/chat/completions.
 LLAMACPP_MODEL: str = os.environ.get("KITEZH_LLAMACPP_MODEL", "nous-hermes-2-mixtral-8x7b-dpo-gguf")
 
+#: Path to the ``llama-server`` binary.  Falls back to searching PATH.
+LLAMACPP_SERVER_BIN: str = os.environ.get("KITEZH_LLAMACPP_SERVER_BIN", "llama-server")
+
+#: Absolute path to the ``.gguf`` model file to load when auto-starting llama-server.
+#: Required when KITEZH_LLAMACPP_AUTOSTART=1 or --llama-server is passed.
+LLAMACPP_MODEL_PATH: str = os.environ.get("KITEZH_LLAMACPP_MODEL_PATH", "")
+
+#: Auto-start llama-server when using the ``llamacpp`` backend.
+#: Set to 1 to enable; requires KITEZH_LLAMACPP_MODEL_PATH to be set.
+LLAMACPP_AUTOSTART: bool = _env_flag("KITEZH_LLAMACPP_AUTOSTART", default=False)
+
+#: Context-window size passed to llama-server via ``--ctx-size``.
+LLAMACPP_SERVER_N_CTX: int = int(os.environ.get("KITEZH_LLAMACPP_N_CTX", "4096"))
+
+#: GPU layers to offload to the accelerator via ``--n-gpu-layers`` (0 = CPU only).
+LLAMACPP_SERVER_N_GPU_LAYERS: int = int(os.environ.get("KITEZH_LLAMACPP_N_GPU_LAYERS", "0"))
+
+#: Auto-start the web chat server alongside the main engine (CLI / init-file mode).
+#: Set to 1 to enable without passing --with-serve.
+WEB_AUTOSTART: bool = _env_flag("KITEZH_WEB_AUTOSTART", default=False)
+
 # ---------------------------------------------------------------------------
 # Web UI
 # ---------------------------------------------------------------------------
