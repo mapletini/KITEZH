@@ -218,7 +218,7 @@ pip install --quiet -r "${REPO_ROOT}/requirements.txt"
 ok "Core dependencies installed."
 
 if [[ -f "${WAKEWORD_REQUIREMENTS}" ]]; then
-    info "Attempting optional wakeword dependency install…"
+    info "Attempting optional wakeword dependency install..."
     if pip install --quiet -r "${WAKEWORD_REQUIREMENTS}"; then
         ok "Optional wakeword dependencies installed."
     else
