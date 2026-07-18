@@ -165,6 +165,15 @@ AUTONOMY_SHUTDOWN_TIMEOUT_SECONDS: float = float(
     os.environ.get("KITEZH_AUTONOMY_SHUTDOWN_TIMEOUT", "1.0")
 )
 
+#: Enable stitched reply playback through the audio splicer pipeline.
+AUDIO_SPLICER_ENABLED: bool = _env_flag("KITEZH_AUDIO_SPLICER_ENABLED", default=False)
+
+#: Library directory containing reusable wav clips for the audio splicer.
+AUDIO_LIBRARY_PATH: str = os.environ.get(
+    "KITEZH_AUDIO_LIBRARY_PATH",
+    os.path.join(WORKSPACE_PATH, "audio_library"),
+)
+
 # ---------------------------------------------------------------------------
 # Dual-homing / network roles
 # ---------------------------------------------------------------------------

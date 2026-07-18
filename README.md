@@ -68,6 +68,8 @@ KITEZH_LETTA_AGENT_ID=your_agent_id
 KITEZH_LLAMACPP_URL=http://localhost:8080
 KITEZH_LLAMACPP_MODEL=nous-hermes-2-mixtral-8x7b-dpo-gguf
 KITEZH_WEB_PORT=7860
+KITEZH_AUDIO_SPLICER_ENABLED=0
+KITEZH_AUDIO_LIBRARY_PATH=./workspace/audio_library
 ```
 
 Legacy compatibility aliases are still accepted:
@@ -160,6 +162,12 @@ python main.py --health
 
 # Start the interactive loop via the RemoteMochiiBridge
 python main.py
+
+# Enable stitched reply playback (synthetic segments + pauses)
+python main.py --audio-splicer
+
+# Use a custom reusable clip library path for splicer mode
+python main.py --audio-splicer --audio-library /path/to/audio_library
 
 ```
 

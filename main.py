@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import re
 import sys
 import threading
 from contextlib import nullcontext
@@ -40,6 +41,10 @@ from skills.cognitive_architect import LLMCognitiveBridge
 from skills.display_bridge import DisplayBridge, build_display_payload
 from skills.letta_bridge import build_letta_bridge
 try:
+    from skills.audio_splicer import BumblebeeSplicer
+except ImportError:
+    BumblebeeSplicer = None
+try:
     from skills.tapo_hub import TapoHub
 except ImportError:
     TapoHub = None
@@ -56,11 +61,18 @@ logging.basicConfig(
 logger = logging.getLogger("kitezh.main")
 if TapoHub is None:
     logger.info("Optional TapoHub dependencies are unavailable; camera hub disabled.")
+if BumblebeeSplicer is None:
+    logger.info("Optional audio splicer dependencies are unavailable; spliced audio disabled.")
 
 MAX_ARCHIVED_MESSAGE_LENGTH = 200
 # Maximum characters of a user message included in the Letta human-block profile summary.
 LETTA_USER_MESSAGE_PREVIEW = 200
 _AUTONOMY_DREAM_CONSOLIDATION_CYCLES = 24
+_SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?])\s+")
+DEFAULT_AUDIO_DURATION_SECONDS = 1.5
+_MIN_SPOKEN_SEGMENT_SECONDS = 0.6
+_MAX_SPOKEN_SEGMENT_SECONDS = 3.5
+_SECONDS_PER_WORD_ESTIMATE = 0.24
 
 
 def _publish_display_state(
@@ -138,6 +150,30 @@ def load_init_file(path: str) -> str:
     logger.info("Loaded init file '%s' (%d chars)", init_path, len(content))
     return content
 
+
+def _estimate_segment_duration(text: str) -> float:
+    # Duration estimate targets short spoken chunks:
+    # - floor avoids clipped one-word responses
+    # - cap avoids long single-segment playback
+    # - seconds/word is a rough conversational pacing heuristic
+    words = len(text.split())
+    if words == 0:
+        return _MIN_SPOKEN_SEGMENT_SECONDS
+    return min(_MAX_SPOKEN_SEGMENT_SECONDS, max(_MIN_SPOKEN_SEGMENT_SECONDS, words * _SECONDS_PER_WORD_ESTIMATE))
+
+
+def build_synthetic_splice_plan(text: str) -> list[dict[str, float | str]]:
+    cleaned = text.strip()
+    if not cleaned:
+        return [{"type": "synthetic", "duration": 1.0}]
+    chunks = [part.strip() for part in _SENTENCE_SPLIT_RE.split(cleaned) if part.strip()]
+    plan: list[dict[str, float | str]] = []
+    for idx, chunk in enumerate(chunks):
+        plan.append({"type": "synthetic", "duration": _estimate_segment_duration(chunk)})
+        if idx < len(chunks) - 1:
+            plan.append({"type": "silence", "duration": 0.15})
+    return plan
+
 # ---------------------------------------------------------------------------
 # Engine bootstrap
 # ---------------------------------------------------------------------------
@@ -181,6 +217,17 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--port", type=int, default=None, metavar="PORT", help="Override the web server port (default: KITEZH_WEB_PORT / 7860).")
     parser.add_argument("--terminal-face", action="store_true", help="Render Kai's shared terminal face only.")
     parser.add_argument("--framebuffer-face", action="store_true", help="Render Kai's optional pygame framebuffer face only.")
+    parser.add_argument(
+        "--audio-splicer",
+        action="store_true",
+        help="Enable spliced audio playback pipeline for interactive replies.",
+    )
+    parser.add_argument(
+        "--audio-library",
+        metavar="DIR",
+        default=None,
+        help="Directory containing reusable WAV clips for audio splicer mode.",
+    )
     parser.add_argument("--verbose", action="store_true", help="Enable DEBUG-level logging.")
     return parser
 
@@ -225,6 +272,15 @@ def main(argv: list[str] | None = None) -> int:
     # Bootstrap cognitive engine
     # ------------------------------------------------------------------
     engine, audio, cognitive_bridge, neuro = bootstrap_engine()
+    audio_splicer = None
+    enable_audio_splicer = args.audio_splicer or config.AUDIO_SPLICER_ENABLED
+    if enable_audio_splicer:
+        if BumblebeeSplicer is None:
+            logger.warning("Audio splicer requested but dependencies are unavailable; continuing with default synthesis.")
+        else:
+            audio_library = args.audio_library or config.AUDIO_LIBRARY_PATH
+            audio_splicer = BumblebeeSplicer(sample_library_path=audio_library)
+            logger.info("Audio splicer enabled using library path: %s", audio_library)
     display_bridge = DisplayBridge()
     # Grab the Letta bridge that bootstrap wired into memory (may be None).
     letta_bridge = cognitive_bridge.memory._letta
@@ -413,7 +469,14 @@ def main(argv: list[str] | None = None) -> int:
                             )
 
                         if sd is not None:
-                            wave_data = audio.generate_frame(duration=1.5)
+                            text_for_audio = reply_text if context_data is not None else ""
+                            if audio_splicer is not None:
+                                splice_plan = build_synthetic_splice_plan(text_for_audio)
+                                wave_data = audio_splicer.splice_sequence(splice_plan, synthetic_voice_generator=audio.generate_frame)
+                                if len(wave_data) == 0:
+                                    wave_data = audio.generate_frame(duration=DEFAULT_AUDIO_DURATION_SECONDS)
+                            else:
+                                wave_data = audio.generate_frame(duration=DEFAULT_AUDIO_DURATION_SECONDS)
                             sd.play(wave_data, 44100)
                             sd.wait()
 
