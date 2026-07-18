@@ -20,6 +20,11 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ENV_FILE="${REPO_ROOT}/.env"
 ENV_EXAMPLE="${REPO_ROOT}/.env.example"
 VENV_DIR="${REPO_ROOT}/.venv"
+HEADLESS_LINUX=0
+
+if [[ "$(uname -s)" == "Linux" ]] && [[ -z "${DISPLAY:-}" ]] && [[ -z "${WAYLAND_DISPLAY:-}" ]]; then
+    HEADLESS_LINUX=1
+fi
 
 # ── Colour / output helpers ───────────────────────────────────────────────────
 
@@ -237,6 +242,18 @@ echo "  KITEZH_LAN_CIDR is set.  Leave blank to disable the restriction (dev mod
 lan_cidr=$(ask "KITEZH_LAN_CIDR (e.g. 192.168.1.0/24, or blank)" "${current_cidr}")
 set_env "KITEZH_LAN_CIDR" "${lan_cidr}"
 
+# ── Headless display defaults ──────────────────────────────────────────────────
+
+if (( HEADLESS_LINUX == 1 )); then
+    current_video_driver=$(grep -E "^KITEZH_DISPLAY_VIDEO_DRIVER=" "${ENV_FILE}" | cut -d= -f2 || echo "")
+    if [[ -z "${current_video_driver}" ]]; then
+        set_env "KITEZH_DISPLAY_VIDEO_DRIVER" "kmsdrm"
+        ok "Headless Linux detected — set KITEZH_DISPLAY_VIDEO_DRIVER=kmsdrm for framebuffer face."
+    else
+        info "Headless Linux detected — keeping existing KITEZH_DISPLAY_VIDEO_DRIVER=${current_video_driver}."
+    fi
+fi
+
 echo ""
 ok "Configuration written to .env"
 echo ""
@@ -259,6 +276,11 @@ echo ""
 echo "  $(bold "To check connectivity:")"
 echo "    python main.py --health"
 echo ""
+if (( HEADLESS_LINUX == 1 )); then
+    echo "  $(bold "Headless display detected (no GUI):")"
+    echo "    python main.py --framebuffer-face"
+    echo ""
+fi
 if [[ "${backend}" == "letta" ]]; then
     echo "  $(bold "Letta note:") On first launch, Kitezh will auto-create a Letta agent"
     echo "  named '$(grep -E "^KITEZH_LETTA_AGENT_NAME=" "${ENV_FILE}" | cut -d= -f2 || echo "kai")' if one does not already exist."
