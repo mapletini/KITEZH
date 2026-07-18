@@ -245,11 +245,12 @@ class DeepMemoryCore:
     def infer_preferences_from_text(self, text: str, sentiment: float, limit: int = 6) -> list[dict[str, Any]]:
         updated: list[dict[str, Any]] = []
         seen: set[str] = set()
+        source_preview = text[:120]
         for token in _PREFERENCE_TOKEN_RE.findall(text.lower()):
             if token in _PREFERENCE_STOPWORDS or token in seen:
                 continue
             seen.add(token)
-            updated.append(self.update_preference(token, sentiment, source=text[:120]))
+            updated.append(self.update_preference(token, sentiment, source=source_preview))
             if len(updated) >= limit:
                 break
         return [entry for entry in updated if entry]

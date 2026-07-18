@@ -31,7 +31,7 @@ def run_framebuffer_face(refresh_seconds: float | None = None, state_path: str |
         print("pygame is not installed. Run 'pip install pygame' to use the framebuffer face.")
         return 1
 
-    os.environ.setdefault("SDL_VIDEODRIVER", "kmsdrm")
+    os.environ.setdefault("SDL_VIDEODRIVER", config.DISPLAY_VIDEO_DRIVER)
     pygame.init()
     screen = pygame.display.set_mode((0, 0), pygame.FULLSCREEN)
     clock = pygame.time.Clock()

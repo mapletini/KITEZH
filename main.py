@@ -418,7 +418,7 @@ def main(argv: list[str] | None = None) -> int:
                 print("\nGoodbye.")
             finally:
                 stop_event.set()
-                autonomy_thread.join(timeout=1.0)
+                autonomy_thread.join(timeout=config.AUTONOMY_SHUTDOWN_TIMEOUT_SECONDS)
                 _publish_display_state(display_bridge, cognitive_bridge, neuro, mode="idle", message="Kai is resting.")
                 if tapo_hub is not None:
                     tapo_hub.stop()

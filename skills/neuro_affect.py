@@ -105,6 +105,8 @@ class NeuroChemicalEngine:
         return max(MIN_SEROTONIN_CAP, 1.0 - (self.allostatic_load * 0.5))
 
     def _strongest_need(self) -> tuple[str, float]:
+        if not self.needs:
+            return "connection", 0.0
         name = max(self.needs, key=self.needs.get)
         return name, float(self.needs[name])
 

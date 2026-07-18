@@ -155,6 +155,14 @@ AUTONOMY_INTERVAL_SECONDS: float = float(os.environ.get("KITEZH_AUTONOMY_INTERVA
 #: Interval used by local terminal/framebuffer face processes when polling the display state file.
 DISPLAY_REFRESH_SECONDS: float = float(os.environ.get("KITEZH_DISPLAY_REFRESH_SECONDS", "1.0"))
 
+#: SDL video backend used by the optional framebuffer face process.
+DISPLAY_VIDEO_DRIVER: str = os.environ.get("KITEZH_DISPLAY_VIDEO_DRIVER", "kmsdrm")
+
+#: Grace period for the CLI autonomy thread to stop during shutdown.
+AUTONOMY_SHUTDOWN_TIMEOUT_SECONDS: float = float(
+    os.environ.get("KITEZH_AUTONOMY_SHUTDOWN_TIMEOUT", "1.0")
+)
+
 # ---------------------------------------------------------------------------
 # Dual-homing / network roles
 # ---------------------------------------------------------------------------

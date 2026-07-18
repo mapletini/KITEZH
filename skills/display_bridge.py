@@ -55,12 +55,24 @@ class DisplayBridge:
 
 def load_display_state(state_path: str | None = None) -> dict[str, Any]:
     path = Path(state_path or config.DISPLAY_STATE_PATH)
+    default_state = {
+        "timestamp": time.time(),
+        "version": 0,
+        "mode": "idle",
+        "emotion": {"label": "neutral", "pad": [0.0, 0.0, 0.0], "intensity": 0.0},
+        "desires": [],
+        "intentions": [],
+        "narrative": "Kai is quiet but present.",
+        "preferences": [],
+        "relationship": {},
+        "message": "",
+    }
     if not path.exists():
-        return DisplayBridge(state_path=str(path)).latest()
+        return default_state
     try:
         return json.loads(path.read_text(encoding="utf-8"))
     except json.JSONDecodeError:
-        return DisplayBridge(state_path=str(path)).latest()
+        return default_state
 
 
 def build_display_payload(
