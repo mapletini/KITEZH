@@ -7,3 +7,5 @@ uvicorn[standard]>=0.51.0
 sounddevice
 pytapo>=3.3.10
 openwakeword>=0.6.0
+# Optional: Letta memory/agent integration (required when KITEZH_LETTA_ENABLED=1)
+letta-client>=0.6.0
