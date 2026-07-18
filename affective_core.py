@@ -134,11 +134,12 @@ class AudioEnvelopeWrapper:
         
         filtered_audio = np.convolve(signal, filter_1, mode='same') + np.convolve(signal, filter_2, mode='same')
 
-        # 4. Apply a sleek trapezoid breathing envelope
+        # 4. Apply a sleek trapezoid breathing envelope.
+        # Clamp so attack + release <= total_samples (no region overlap).
         envelope = np.ones(total_samples, dtype=np.float64)
-        attack = int(self._sample_rate * 0.1)
-        release = int(self._sample_rate * 0.15)
-        
+        attack = min(int(self._sample_rate * 0.1), total_samples // 2)
+        release = min(int(self._sample_rate * 0.15), total_samples - attack)
+
         envelope[:attack] = np.linspace(0.0, 1.0, attack)
         envelope[-release:] = np.linspace(1.0, 0.0, release)
         
