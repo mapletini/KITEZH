@@ -64,12 +64,12 @@ class BumblebeeSplicer:
                 subprocess.run(
                     [
                         "ffmpeg",
+                        "-i",
+                        str(downloaded_file),
                         "-ss",
                         start_time,
                         "-to",
                         end_time,
-                        "-i",
-                        str(downloaded_file),
                         "-ac",
                         "1",
                         "-ar",
