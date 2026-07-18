@@ -14,11 +14,7 @@ from typing import Any, Callable
 
 import numpy as np
 import scipy.io.wavfile as wav
-
-try:
-    import yt_dlp
-except ImportError:  # pragma: no cover - optional dependency
-    yt_dlp = None
+import yt_dlp
 
 logger = logging.getLogger(__name__)
 
@@ -42,9 +38,6 @@ class BumblebeeSplicer:
 
     def _fetch_and_snip(self, url: str, start_time: str, end_time: str, filename: str) -> str:
         """Fetches remote audio and trims it into a normalized local WAV file."""
-        if yt_dlp is None:
-            logger.error("yt-dlp is not installed; cannot fetch scraped audio blocks.")
-            return ""
         if shutil.which("ffmpeg") is None:
             logger.error("ffmpeg is not installed; cannot trim scraped audio blocks.")
             return ""

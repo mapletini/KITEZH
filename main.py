@@ -263,7 +263,7 @@ def main(argv: list[str] | None = None) -> int:
     # ------------------------------------------------------------------
     engine, audio, cognitive_bridge, neuro = bootstrap_engine()
     audio_splicer = None
-    enable_audio_splicer = bool(args.audio_splicer or config.AUDIO_SPLICER_ENABLED)
+    enable_audio_splicer = args.audio_splicer or config.AUDIO_SPLICER_ENABLED
     if enable_audio_splicer:
         if BumblebeeSplicer is None:
             logger.warning("Audio splicer requested but dependencies are unavailable; continuing with default synthesis.")
