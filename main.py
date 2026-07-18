@@ -272,12 +272,6 @@ def main(argv: list[str] | None = None) -> int:
         from skills.display_face import run_framebuffer_face
         return run_framebuffer_face()
 
-    if args.serve:
-        from web_ui import start as start_web
-        logger.info("Launching K.A.I. web interface on port %s…", args.port or config.WEB_PORT)
-        start_web(port=args.port)
-        return 0
-
     # ------------------------------------------------------------------
     # Health check mode
     # ------------------------------------------------------------------
@@ -292,10 +286,9 @@ def main(argv: list[str] | None = None) -> int:
         return 0 if ok else 1
 
     # ------------------------------------------------------------------
-    # Bootstrap cognitive engine
+    # llama-server auto-start (llamacpp backend) — must run before --serve
+    # so the model is ready when the web UI accepts its first request.
     # ------------------------------------------------------------------
-
-    # --- llama-server auto-start (llamacpp backend) ---
     llama_server = None
     want_llama_server = args.llama_server or config.LLAMACPP_AUTOSTART
     if want_llama_server:
@@ -316,6 +309,16 @@ def main(argv: list[str] | None = None) -> int:
             except RuntimeError as exc:
                 logger.error("Failed to start llama-server: %s", exc)
                 return 1
+
+    if args.serve:
+        from web_ui import start as start_web
+        logger.info("Launching K.A.I. web interface on port %s…", args.port or config.WEB_PORT)
+        try:
+            start_web(port=args.port)
+        finally:
+            if llama_server is not None:
+                llama_server.stop()
+        return 0
 
     # --- Web UI background start ---
     if args.with_serve or config.WEB_AUTOSTART:
