@@ -54,6 +54,9 @@ class TestLlamaCppBackend(unittest.TestCase):
         because the hard-coded release constant (6615 samples) exceeded
         total_samples (4410) for the 0.1 s warmup frame, causing a shape
         mismatch on the numpy envelope slice assignment.
+
+        A ValueError from inside main() propagates uncaught to the test, so
+        a clean exit code of 0 explicitly verifies the bug does not recur.
         """
         fake_response = Mock()
         fake_response.raise_for_status.return_value = None
@@ -63,7 +66,10 @@ class TestLlamaCppBackend(unittest.TestCase):
         with patch.object(main.config, "REMOTE_ENABLED", False), \
              patch.object(llm_backends.requests, "post", return_value=fake_response), \
              patch("builtins.print"):
-            exit_code = main.main(["--init", "system_manifest.md", "--backend", "llamacpp"])
+            try:
+                exit_code = main.main(["--init", "system_manifest.md", "--backend", "llamacpp"])
+            except ValueError as exc:
+                self.fail(f"generate_frame raised ValueError (regression): {exc}")
         self.assertEqual(exit_code, 0)
 
 

@@ -52,7 +52,7 @@ class TestAudioEnvelopeWrapper(unittest.TestCase):
         self.assertEqual(len(frame), int(44100 * 1.5))
 
     def test_generate_frame_returns_normalized_array(self) -> None:
-        """Output should be in [-1.0, 1.0] (normalised unless all-zero)."""
+        """Output should be in [-1.0, 1.0] (normalized unless all-zero)."""
         wrapper = self._make_wrapper()
         frame = wrapper.generate_frame(duration=0.5)
         self.assertIsInstance(frame, np.ndarray)
