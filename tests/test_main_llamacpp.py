@@ -44,6 +44,28 @@ class TestLlamaCppBackend(unittest.TestCase):
         self.assertEqual(exit_code, 0)
         mock_print.assert_called_once_with("Remote backend: disabled (set KITEZH_REMOTE_ENABLED=1 to enable)")
 
+    def test_main_init_llamacpp_exits_cleanly(self) -> None:
+        """Regression: main --init <file> --backend llamacpp must not crash.
+
+        Before the generate_frame envelope fix, the warmup call
+        ``audio.generate_frame(duration=0.1)`` raised:
+            ValueError: could not broadcast input array from shape (6615,)
+                        into shape (4410,)
+        because the hard-coded release constant (6615 samples) exceeded
+        total_samples (4410) for the 0.1 s warmup frame, causing a shape
+        mismatch on the numpy envelope slice assignment.
+        """
+        fake_response = Mock()
+        fake_response.raise_for_status.return_value = None
+        fake_response.json.return_value = {
+            "choices": [{"message": {"role": "assistant", "content": "ok"}}]
+        }
+        with patch.object(main.config, "REMOTE_ENABLED", False), \
+             patch.object(llm_backends.requests, "post", return_value=fake_response), \
+             patch("builtins.print"):
+            exit_code = main.main(["--init", "system_manifest.md", "--backend", "llamacpp"])
+        self.assertEqual(exit_code, 0)
+
 
 if __name__ == "__main__":
     unittest.main()
