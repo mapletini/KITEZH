@@ -136,7 +136,8 @@ def main(argv: list[str] | None = None) -> int:
     engine, audio, cognitive_bridge, neuro = bootstrap_engine()
 
     # Log a test frame to ensure the synth is working (fixed method name!)
-    audio.generate_frame(duration=0.1)
+    warmup_frame = audio.generate_frame(duration=0.1)
+    logger.debug("Generated warmup audio frame (%d samples).", len(warmup_frame))
     logger.info("Audio envelope initialized properly.")
 
     # ------------------------------------------------------------------
