@@ -9,3 +9,5 @@ pytapo>=3.3.10
 openwakeword>=0.6.0
 # Optional: Letta memory/agent integration (required when KITEZH_LETTA_ENABLED=1)
 letta-client>=0.6.0
+# Optional: local framebuffer face on Ubuntu Server (KMS/DRM)
+pygame>=2.6.1

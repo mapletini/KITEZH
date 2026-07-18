@@ -10,12 +10,11 @@ Covers:
 * emotional_intensity accepts a pre-computed pad argument
 """
 
-import time
 import unittest
 
 import numpy as np
 
-from skills.neuro_affect import NeuroChemicalEngine, Neurotransmitters
+from skills.neuro_affect import NeuroChemicalEngine
 
 
 class TestNeuroChemicalEngine(unittest.TestCase):
@@ -170,8 +169,18 @@ class TestNeuroChemicalEngine(unittest.TestCase):
 
     def test_emotion_snapshot_includes_new_state_fields(self) -> None:
         snapshot = self.engine.emotion_snapshot()
-        for key in ("label", "conflict", "allostatic_load", "bond_strength", "expression_clamp"):
+        for key in ("label", "conflict", "allostatic_load", "bond_strength", "expression_clamp", "needs", "strongest_need"):
             self.assertIn(key, snapshot)
+
+    def test_positive_interaction_reduces_connection_need(self) -> None:
+        before = self.engine.needs["connection"]
+        self.engine.apply_stimulus(reward=0.4, success=0.2, user_id="friend")
+        self.assertLess(self.engine.needs["connection"], before)
+
+    def test_autonomous_advance_raises_idle_connection_need(self) -> None:
+        before = self.engine.needs["connection"]
+        self.engine.advance_autonomous_state(300.0)
+        self.assertGreater(self.engine.needs["connection"], before)
 
     # ------------------------------------------------------------------
     # Clamping: chemicals never exceed [0, 1]

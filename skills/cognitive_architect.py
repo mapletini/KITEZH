@@ -34,6 +34,7 @@ class LLMCognitiveBridge:
         self.ollama_url = os.getenv("OLLAMA_URL", "http://localhost:11434")
         self.current_intentions: list[str] = []
         self.current_desires: list[str] = []
+        self.last_narrative: str = "Kai is present and waiting."
 
     def _query_brain(self, system_prompt: str, user_prompt: str) -> dict[str, Any]:
         """Sends a query to the local LLM and forces a structured JSON response."""
@@ -140,6 +141,17 @@ class LLMCognitiveBridge:
         if stimulus:
             self.neuro.apply_stimulus(user_id=user_id, **stimulus)
 
+    def refresh_self_narrative(self, user_id: str | None = None) -> str:
+        emotion_snapshot = self.neuro.emotion_snapshot()
+        narrative = self.memory.reflect_on_state(
+            emotion_snapshot,
+            desires=self.current_desires,
+            intentions=self.current_intentions,
+            user_id=user_id,
+        )
+        self.last_narrative = narrative
+        return narrative
+
     # ---------------------------------------------------------------------------
     # 1. Belief-Desire-Intention (BDI) Deliberation
     # ---------------------------------------------------------------------------
@@ -159,6 +171,7 @@ class LLMCognitiveBridge:
         self._apply_mood_congruent_priming(emotion_snapshot, recent_episodes)
         current_pad = self.neuro.get_pad_coordinates()
         emotion_snapshot = self.neuro.emotion_snapshot(pad=current_pad)
+        human_state = self.memory.summarize_human_state(self.neuro.active_user_id)
 
         c = self.neuro.chemicals
         chem_state = (
@@ -172,9 +185,9 @@ class LLMCognitiveBridge:
             "You are the cognitive BDI engine of K.A.I., an autonomous intelligence. "
             "Your identity and personality emerge from your accumulated memories — including "
             "ones that have faded or been emotionally recolored over time. "
-            "Use the current discrete emotion label, PAD state, social bond cues, and "
+            "Use the current discrete emotion label, PAD state, unmet-needs profile, social bond cues, relationship strain, and "
             "neurochemical state to determine high-level Desires and immediate Intentions. "
-            "If emotional regulation seems appropriate, reflect that in the desire or intention text. "
+            "If emotional regulation, hesitation, repair, or withdrawal seems appropriate, reflect that in the desire or intention text. "
             "Output valid JSON ONLY: {\"desires\": [\"str\"], \"intentions\": [\"str\"]}"
         )
 
@@ -182,6 +195,7 @@ class LLMCognitiveBridge:
             f"IDENTITY CONTEXT:\n{personality_context}\n\n"
             f"CURRENT EMOTION: {json.dumps(emotion_snapshot)}\n"
             f"RECENT EVENTS: {json.dumps(recent_episodes)}\n"
+            f"HUMAN STATE: {human_state}\n"
             f"CHEMICAL STATE: {chem_state}"
         )
 
@@ -191,6 +205,7 @@ class LLMCognitiveBridge:
         regulation_strategy = self._select_regulation_strategy(thought, emotion_snapshot)
         if regulation_strategy:
             self.neuro.regulate(regulation_strategy, trigger=str(emotion_snapshot.get("label")))
+        self.refresh_self_narrative(self.neuro.active_user_id)
 
         logger.info(
             "K.A.I. Deliberated! emotion=%s intentions=%s",
