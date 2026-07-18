@@ -52,11 +52,15 @@ pip install sounddevice
 ### Configuration
 Create a .env file in the root directory:
 ```env
+KITEZH_REMOTE_ENABLED=0  # set to 1 to use the external API bridge
+
+# Only required when KITEZH_REMOTE_ENABLED=1
 KITEZH_REMOTE_URL=https://your-remote-backend.com
 KITEZH_AI_KEY=your_secure_ai_key
 KITEZH_COMMAND_SIGNING_SECRET=your_signing_secret
+
 KITEZH_PUPPY_ID=123456789012345678
-KITEZH_LLM_BACKEND=ollama  # or 'letta'
+KITEZH_LLM_BACKEND=ollama  # or 'letta' / 'llamacpp'
 KITEZH_OLLAMA_URL=http://localhost:11434
 KITEZH_OLLAMA_MODEL=llama3
 KITEZH_LETTA_URL=http://localhost:8283
@@ -68,6 +72,9 @@ KITEZH_WEB_PORT=7860
 
 Legacy compatibility aliases are still accepted:
 `MOCHII_API_URL`, `AI_BRIDGE_SECRET`, `AI_COMMAND_SIGNING_SECRET`, and `DISCORD_PUPPY_ID`.
+
+With `KITEZH_REMOTE_ENABLED=0`, web chat and CLI interactive mode fall back to
+the configured local LLM backend instead of requiring the external API.
 
 ---
 
