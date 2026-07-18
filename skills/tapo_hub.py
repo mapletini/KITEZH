@@ -162,7 +162,7 @@ class TapoHub:
 
         with self._lock:
             already_listening = {
-                listener._camera.ip for listener in self._listeners
+                listener.camera_ip for listener in self._listeners
             }
 
         new_listeners: list[WakewordListener] = []

@@ -38,7 +38,7 @@ logger = logging.getLogger(__name__)
 # openWakeWord expects 16-kHz mono PCM.
 _SAMPLE_RATE = 16_000
 _CHUNK_MS = 80
-_CHUNK_SAMPLES = int(_SAMPLE_RATE * _CHUNK_MS / 1000)  # 1 280 samples per chunk
+_CHUNK_SAMPLES = int(_SAMPLE_RATE * _CHUNK_MS / 1000)  # 1280 samples per chunk
 _CHUNK_BYTES = _CHUNK_SAMPLES * 2                       # int16 → 2 bytes per sample
 
 _BACKOFF_INITIAL = 2.0
@@ -95,6 +95,11 @@ class WakewordListener:
         """Signal the listener thread to exit cleanly."""
         self._stop_event.set()
         logger.info("WakewordListener: stopping for camera '%s'.", self._camera.name)
+
+    @property
+    def camera_ip(self) -> str:
+        """IP address of the camera this listener is attached to."""
+        return self._camera.ip
 
     # ------------------------------------------------------------------
     # Internal
