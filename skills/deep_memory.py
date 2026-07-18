@@ -59,6 +59,8 @@ _PREFERENCE_STOPWORDS = {
     *_COMMON_PREFERENCE_STOPWORDS,
     *_DOMAIN_PREFERENCE_STOPWORDS,
 }
+_RELATIONSHIP_TENSION_THRESHOLD = 0.45
+_RELATIONSHIP_ATTACHMENT_THRESHOLD = 0.45
 
 # ---------------------------------------------------------------------------
 # 1. Advanced Emotional Geometry & Homeostasis
@@ -259,7 +261,7 @@ class DeepMemoryCore:
             updated.append(self.update_preference(token, sentiment, source=source_preview))
             if len(updated) >= limit:
                 break
-        return [entry for entry in updated if entry]
+        return updated
 
     def get_preferences(self, limit: int = 5) -> list[dict[str, Any]]:
         prefs = self._read_identity_state("preferences", {})
@@ -677,11 +679,11 @@ class DeepMemoryCore:
             phrases.append(f"Kai feels {label}")
         phrases.append(f"the strongest unmet need is {strongest_need}")
         if relation:
-            if float(relation.get("tension", 0.0)) > 0.45:
+            if float(relation.get("tension", 0.0)) > _RELATIONSHIP_TENSION_THRESHOLD:
                 phrases.append(
                     f"there is unresolved strain with {relation.get('display_name', relation.get('user_id', 'the user'))}"
                 )
-            elif float(relation.get("attachment", 0.0)) > 0.45:
+            elif float(relation.get("attachment", 0.0)) > _RELATIONSHIP_ATTACHMENT_THRESHOLD:
                 phrases.append(
                     f"Kai feels attached to {relation.get('display_name', relation.get('user_id', 'the user'))}"
                 )

@@ -39,12 +39,10 @@ from skills.neuro_affect import NeuroChemicalEngine
 from skills.cognitive_architect import LLMCognitiveBridge
 from skills.display_bridge import DisplayBridge, build_display_payload
 from skills.letta_bridge import build_letta_bridge
-_TAPO_IMPORT_ERROR = False
 try:
     from skills.tapo_hub import TapoHub
 except ImportError:
     TapoHub = None
-    _TAPO_IMPORT_ERROR = True
 
 # ---------------------------------------------------------------------------
 # Logging setup
@@ -56,12 +54,13 @@ logging.basicConfig(
     datefmt="%Y-%m-%d %H:%M:%S",
 )
 logger = logging.getLogger("kitezh.main")
-if _TAPO_IMPORT_ERROR:
+if TapoHub is None:
     logger.info("Optional TapoHub dependencies are unavailable; camera hub disabled.")
 
 MAX_ARCHIVED_MESSAGE_LENGTH = 200
 # Maximum characters of a user message included in the Letta human-block profile summary.
 LETTA_USER_MESSAGE_PREVIEW = 200
+_AUTONOMY_DREAM_CONSOLIDATION_CYCLES = 24
 
 
 def _publish_display_state(
@@ -106,7 +105,7 @@ def _start_autonomy_daemon(
                 engine.tick()
                 cognitive_bridge.refresh_self_narrative(neuro.active_user_id)
                 autonomy_cycles += 1
-                if autonomy_cycles % 24 == 0:
+                if autonomy_cycles % _AUTONOMY_DREAM_CONSOLIDATION_CYCLES == 0:
                     cognitive_bridge.memory.execute_dream_consolidation()
                     if letta_bridge is not None:
                         letta_bridge.send_dream_message(cognitive_bridge.memory.synthesize_personality_context())

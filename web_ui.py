@@ -44,15 +44,13 @@ from skills.display_bridge import DisplayBridge, build_display_payload
 from skills.filesystem import WorkspaceWriter, WorkspaceReader
 from skills.letta_bridge import build_letta_bridge
 from skills.neuro_affect import NeuroChemicalEngine
-_TAPO_IMPORT_ERROR = False
 try:
     from skills.tapo_hub import TapoHub
 except ImportError:
     TapoHub = None
-    _TAPO_IMPORT_ERROR = True
 
 logger = logging.getLogger(__name__)
-if _TAPO_IMPORT_ERROR:
+if TapoHub is None:
     logger.info("Optional TapoHub dependencies are unavailable; camera hub disabled in web mode.")
 
 # Path inside the workspace where K.A.I.'s UI template lives.
@@ -532,16 +530,18 @@ async def display_state() -> dict[str, Any]:
 
 
 @app.get("/api/display/stream")
-async def display_stream() -> StreamingResponse:
+async def display_stream(request: Request) -> StreamingResponse:
     async def event_gen():
         last_version = None
         while True:
+            if await request.is_disconnected():
+                break
             state = _display_bridge.latest()
             version = state.get("version")
             if version != last_version:
                 yield f"data: {json.dumps(state, ensure_ascii=False)}\n\n"
                 last_version = version
-            await asyncio.sleep(1.0)
+            await asyncio.sleep(config.DISPLAY_REFRESH_SECONDS)
 
     return StreamingResponse(event_gen(), media_type="text/event-stream")
 

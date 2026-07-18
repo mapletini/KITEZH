@@ -8,6 +8,9 @@ from typing import Any
 import config
 from skills.display_bridge import load_display_state
 
+_HIGH_INTENSITY_THRESHOLD = 0.55
+_MEDIUM_INTENSITY_THRESHOLD = 0.25
+
 
 def _ansi_color(label: str) -> str:
     return {
@@ -29,7 +32,11 @@ def render_terminal_face(state: dict[str, Any]) -> str:
     strongest_need = str(emotion.get("strongest_need", "connection"))
     pad = emotion.get("pad", [0.0, 0.0, 0.0])
     pad_text = str([round(float(v), 2) for v in pad])
-    eyes = "◕ ◕" if intensity > 0.55 else "◔ ◔" if intensity > 0.25 else "• •"
+    eyes = (
+        "◕ ◕"
+        if intensity > _HIGH_INTENSITY_THRESHOLD
+        else "◔ ◔" if intensity > _MEDIUM_INTENSITY_THRESHOLD else "• •"
+    )
     mouth = "_" if label in {"fear", "sadness"} else "‿" if label in {"joy", "love", "trust"} else "—"
     color = _ansi_color(label)
     reset = "\033[0m"
