@@ -524,7 +524,7 @@ def build_letta_bridge() -> LettaBridge | None:
         return None
 
     bridge = LettaBridge.from_config()
-    bridge.ensure_agent()
+    bridge.ensure_agent(name=config.LETTA_AGENT_NAME)
 
     if not bridge.is_available():
         logger.warning(
