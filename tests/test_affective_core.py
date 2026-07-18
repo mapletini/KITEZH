@@ -4,6 +4,8 @@ import numpy as np
 
 from affective_core import AffectiveEngine, AudioEnvelopeWrapper, PADState
 
+_NORMALIZATION_TOLERANCE = 1e-9
+
 
 class TestAffectiveCore(unittest.TestCase):
     def test_pad_state_clamps_values(self) -> None:
@@ -56,5 +58,5 @@ class TestAudioEnvelopeWrapper(unittest.TestCase):
         wrapper = self._make_wrapper()
         frame = wrapper.generate_frame(duration=0.5)
         self.assertIsInstance(frame, np.ndarray)
-        self.assertLessEqual(float(np.max(np.abs(frame))), 1.0 + 1e-9)
+        self.assertLessEqual(float(np.max(np.abs(frame))), 1.0 + _NORMALIZATION_TOLERANCE)
 

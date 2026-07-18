@@ -66,6 +66,7 @@ class TestLlamaCppBackend(unittest.TestCase):
         with patch.object(main.config, "REMOTE_ENABLED", False), \
              patch.object(llm_backends.requests, "post", return_value=fake_response), \
              patch("builtins.print"):
+            exit_code = None
             try:
                 exit_code = main.main(["--init", "system_manifest.md", "--backend", "llamacpp"])
             except ValueError as exc:
