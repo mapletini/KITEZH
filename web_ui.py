@@ -44,12 +44,16 @@ from skills.display_bridge import DisplayBridge, build_display_payload
 from skills.filesystem import WorkspaceWriter, WorkspaceReader
 from skills.letta_bridge import build_letta_bridge
 from skills.neuro_affect import NeuroChemicalEngine
+_TAPO_IMPORT_ERROR = False
 try:
     from skills.tapo_hub import TapoHub
 except ImportError:
     TapoHub = None
+    _TAPO_IMPORT_ERROR = True
 
 logger = logging.getLogger(__name__)
+if _TAPO_IMPORT_ERROR:
+    logger.info("Optional TapoHub dependencies are unavailable; camera hub disabled in web mode.")
 
 # Path inside the workspace where K.A.I.'s UI template lives.
 UI_TEMPLATE_PATH = "ui/index.html"

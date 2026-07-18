@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import logging
 import math
 import os
 import time
@@ -8,10 +9,13 @@ import time
 import config
 from skills.display_bridge import load_display_state
 
+logger = logging.getLogger(__name__)
+
 try:
     import pygame
 except ImportError:  # pragma: no cover - optional dependency
     pygame = None
+    logger.info("pygame is unavailable; framebuffer face rendering will be disabled.")
 
 
 def _emotion_color(label: str) -> tuple[int, int, int]:

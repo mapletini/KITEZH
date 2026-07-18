@@ -156,6 +156,8 @@ AUTONOMY_INTERVAL_SECONDS: float = float(os.environ.get("KITEZH_AUTONOMY_INTERVA
 DISPLAY_REFRESH_SECONDS: float = float(os.environ.get("KITEZH_DISPLAY_REFRESH_SECONDS", "1.0"))
 
 #: SDL video backend used by the optional framebuffer face process.
+#: Defaults to ``kmsdrm`` for Linux/Ubuntu Server framebuffer deployments; other
+#: environments may need to override this via KITEZH_DISPLAY_VIDEO_DRIVER.
 DISPLAY_VIDEO_DRIVER: str = os.environ.get("KITEZH_DISPLAY_VIDEO_DRIVER", "kmsdrm")
 
 #: Grace period for the CLI autonomy thread to stop during shutdown.

@@ -107,7 +107,7 @@ class NeuroChemicalEngine:
     def _strongest_need(self) -> tuple[str, float]:
         if not self.needs:
             return "connection", 0.0
-        name = max(self.needs, key=self.needs.get)
+        name = max(self.needs, key=lambda need_name: self.needs.get(need_name, 0.0))
         return name, float(self.needs[name])
 
     def _drift_needs(self, elapsed_seconds: float) -> None:

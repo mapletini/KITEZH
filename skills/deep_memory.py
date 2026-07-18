@@ -47,11 +47,17 @@ MIN_FIDELITY: float = 0.10
 # Number of leading characters used to deduplicate Letta results against local results
 _LETTA_DEDUP_PREFIX_LEN: int = 100
 _PREFERENCE_TOKEN_RE = re.compile(r"[A-Za-z][A-Za-z0-9_-]{3,}")
-_PREFERENCE_STOPWORDS = {
+_COMMON_PREFERENCE_STOPWORDS = {
     "the", "and", "with", "that", "this", "from", "have", "your", "you", "them",
     "they", "there", "what", "when", "where", "would", "could", "should", "about",
     "just", "very", "like", "been", "into", "through", "ours", "ourselves", "reply",
-    "user", "assistant", "kai",
+}
+# These domain labels appear in nearly every chat turn and would otherwise overwhelm
+# preference extraction with low-signal "likes" tied to the conversation wrapper itself.
+_DOMAIN_PREFERENCE_STOPWORDS = {"user", "assistant", "kai"}
+_PREFERENCE_STOPWORDS = {
+    *_COMMON_PREFERENCE_STOPWORDS,
+    *_DOMAIN_PREFERENCE_STOPWORDS,
 }
 
 # ---------------------------------------------------------------------------

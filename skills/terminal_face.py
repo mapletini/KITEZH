@@ -28,6 +28,7 @@ def render_terminal_face(state: dict[str, Any]) -> str:
     narrative = str(state.get("narrative", "Kai is quiet but present."))
     strongest_need = str(emotion.get("strongest_need", "connection"))
     pad = emotion.get("pad", [0.0, 0.0, 0.0])
+    pad_text = str([round(float(v), 2) for v in pad])
     eyes = "◕ ◕" if intensity > 0.55 else "◔ ◔" if intensity > 0.25 else "• •"
     mouth = "_" if label in {"fear", "sadness"} else "‿" if label in {"joy", "love", "trust"} else "—"
     color = _ansi_color(label)
@@ -43,7 +44,7 @@ def render_terminal_face(state: dict[str, Any]) -> str:
         "║                                        ║\n"
         f"║ emotion   {label[:28]:<28}║\n"
         f"║ need      {strongest_need[:28]:<28}║\n"
-        f"║ pad       {str([round(float(v), 2) for v in pad])[:28]:<28}║\n"
+        f"║ pad       {pad_text[:28]:<28}║\n"
         "╠════════════════════════════════════════╣\n"
         f"║ {narrative[:38]:<38} ║\n"
         "╚════════════════════════════════════════╝\n"
