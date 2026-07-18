@@ -51,6 +51,8 @@ logging.basicConfig(
 logger = logging.getLogger("kitezh.main")
 
 MAX_ARCHIVED_MESSAGE_LENGTH = 200
+# Maximum characters of a user message included in the Letta human-block profile summary.
+LETTA_USER_MESSAGE_PREVIEW = 200
 
 def load_init_file(path: str) -> str:
     """Read and return the contents of an initialization Markdown file."""
@@ -273,7 +275,7 @@ def main(argv: list[str] | None = None) -> int:
                     if letta_bridge is not None:
                         letta_bridge.update_human_block(
                             f"Active user: {payload.display_name} (id={payload.user_id}). "
-                            f"Most recent message: {raw[:200]}"
+                            f"Most recent message: {raw[:LETTA_USER_MESSAGE_PREVIEW]}"
                         )
 
                     # 6. Every 10 interactions run dream consolidation (fidelity/synapse decay)

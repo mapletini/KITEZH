@@ -55,6 +55,8 @@ _CHAT_DB_PATH = Path(config.WORKSPACE_PATH) / "chat_log.db"
 _MAX_ARCHIVED_MESSAGE_LENGTH = 200
 _DREAM_CONSOLIDATION_INTERVAL_SECONDS = 3600
 _DREAM_CONSOLIDATION_INTERACTION_FREQUENCY = 10
+# Maximum characters of a user message included in the Letta human-block profile summary.
+_LETTA_USER_MESSAGE_PREVIEW = 200
 
 # Letta integration bridge (None when KITEZH_LETTA_ENABLED=0).
 _letta_bridge = build_letta_bridge()
@@ -302,7 +304,7 @@ def _process_web_cognitive_loop(user_id: str, display_name: str, user_content: s
     if _letta_bridge is not None:
         human_summary = (
             f"Active user: {display_name} (id={user_id}). "
-            f"Most recent message: {user_content[:200]}"
+            f"Most recent message: {user_content[:_LETTA_USER_MESSAGE_PREVIEW]}"
         )
         _letta_bridge.update_human_block(human_summary)
 

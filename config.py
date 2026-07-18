@@ -119,7 +119,7 @@ LETTA_ENABLED: bool = _env_flag("KITEZH_LETTA_ENABLED", default=False)
 #: Base URL for the Letta REST API.
 LETTA_BASE_URL: str = os.environ.get("KITEZH_LETTA_URL", "http://localhost:8283")
 
-#: ****** for Letta API authentication (leave blank for unauthenticated local servers).
+#: API token for Letta API authentication (leave blank for unauthenticated local servers).
 LETTA_TOKEN: str = os.environ.get("KITEZH_LETTA_TOKEN", "")
 
 #: Letta agent ID to use.  When empty and KITEZH_LETTA_ENABLED=1, a new agent

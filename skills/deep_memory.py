@@ -42,6 +42,9 @@ FIDELITY_DECAY_RATE: float = 0.02
 # Episodic fidelity never drops below this floor (memories become unreliable, not gone)
 MIN_FIDELITY: float = 0.10
 
+# Number of leading characters used to deduplicate Letta results against local results
+_LETTA_DEDUP_PREFIX_LEN: int = 100
+
 # ---------------------------------------------------------------------------
 # 1. Advanced Emotional Geometry & Homeostasis
 # ---------------------------------------------------------------------------
@@ -396,11 +399,11 @@ class DeepMemoryCore:
                 np.array([target_p, target_a, target_d])
             )
             letta_hits = self._letta.search_archival(emotion_label, limit=limit)
-            seen_contents = {r["content"][:100] for r in result}
+            seen_contents = {r["content"][:_LETTA_DEDUP_PREFIX_LEN] for r in result}
             for hit in letta_hits:
-                if hit["content"][:100] not in seen_contents:
+                if hit["content"][:_LETTA_DEDUP_PREFIX_LEN] not in seen_contents:
                     result.append(hit)
-                    seen_contents.add(hit["content"][:100])
+                    seen_contents.add(hit["content"][:_LETTA_DEDUP_PREFIX_LEN])
 
         return result
 

@@ -123,7 +123,7 @@ class LettaBridge:
         self._timeout = timeout
         self._session = requests.Session()
         if token:
-            self._session.headers["Authorization"] = f"******"
+            self._session.headers["Authorization"] = "Bearer " + token
         self._session.headers["Content-Type"] = "application/json"
 
     @property
