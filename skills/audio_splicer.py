@@ -9,6 +9,7 @@ import re
 import shutil
 import subprocess
 import tempfile
+from urllib.parse import urlparse
 from pathlib import Path
 from typing import Any, Callable
 
@@ -20,6 +21,7 @@ import yt_dlp
 logger = logging.getLogger(__name__)
 
 _SAFE_FILENAME_RE = re.compile(r"[^A-Za-z0-9._-]+")
+_TIME_CODE_RE = re.compile(r"^(?:\d{1,2}:)?\d{1,2}:\d{2}(?:\.\d+)?$")
 
 
 class BumblebeeSplicer:
@@ -45,6 +47,12 @@ class BumblebeeSplicer:
         if shutil.which("ffmpeg") is None:
             logger.error("ffmpeg not found in PATH; install ffmpeg to enable scraped audio trimming.")
             return ""
+        if not url.strip():
+            logger.error("Cannot fetch scraped audio without a source URL.")
+            return ""
+        if not _TIME_CODE_RE.fullmatch(start_time) or not _TIME_CODE_RE.fullmatch(end_time):
+            logger.error("Invalid scrape time window start=%s end=%s", start_time, end_time)
+            return ""
 
         output_name = self._normalize_filename(filename, "scraped_clip")
         final_path = self.library_path / output_name
@@ -60,7 +68,9 @@ class BumblebeeSplicer:
                 "noplaylist": True,
             }
             try:
-                logger.info("Fetching audio source for clip splice: %s", url)
+                parsed = urlparse(url)
+                safe_url = f"{parsed.scheme}://{parsed.netloc}{parsed.path}" if parsed.scheme and parsed.netloc else "<redacted>"
+                logger.info("Fetching audio source for clip splice: %s", safe_url)
                 with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                     info = ydl.extract_info(url, download=True)
                     downloaded_file = Path(ydl.prepare_filename(info))
@@ -87,7 +97,7 @@ class BumblebeeSplicer:
                 )
                 return str(final_path)
             except Exception as exc:
-                logger.error("Failed to fetch/trim scraped clip (%s): %s", url, exc)
+                logger.error("Failed to fetch/trim scraped clip from %s: %s", safe_url, exc)
                 return ""
 
     def _load_wav_as_float64(self, file_path: str | Path) -> np.ndarray:
