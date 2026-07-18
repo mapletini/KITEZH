@@ -13,17 +13,14 @@ Covers:
 * synthesize_personality_context includes all three memory tiers
 """
 
-import os
 import tempfile
 import unittest
 
 from skills.deep_memory import (
     DeepMemoryCore,
     EmotionalGraph,
-    FIDELITY_DECAY_RATE,
     KEY_MEMORY_IMPORTANCE_THRESHOLD,
     MIN_FIDELITY,
-    WARP_RATE,
 )
 
 
@@ -325,6 +322,33 @@ class TestDeepMemoryCore(unittest.TestCase):
         beliefs = self.mem.read_core_memory()
         self.assertIn("updated belief", beliefs)
         self.assertNotIn("initial belief", beliefs)
+
+    def test_update_preference_persists_state(self) -> None:
+        self.mem.update_preference("music", 0.3, source="music is soothing")
+        prefs = self.mem.get_preferences()
+        self.assertEqual(prefs[0]["topic"], "music")
+        self.assertGreater(prefs[0]["score"], 0.0)
+
+    def test_infer_preferences_from_text_extracts_topics(self) -> None:
+        updated = self.mem.infer_preferences_from_text("Kai likes music, poetry, and midnight rain.", 0.2)
+        topics = {entry["topic"] for entry in updated}
+        self.assertIn("music", topics)
+
+    def test_update_relationship_persists_profile(self) -> None:
+        self.mem.update_relationship("user-1", display_name="Maple", trust_delta=0.2, attachment_delta=0.1)
+        profile = self.mem.get_relationship("user-1")
+        self.assertEqual(profile["display_name"], "Maple")
+        self.assertGreater(profile["trust"], 0.4)
+
+    def test_reflect_on_state_updates_self_narrative(self) -> None:
+        summary = self.mem.reflect_on_state(
+            {"label": "joy", "pleasure": 0.5, "conflict": 0.1, "strongest_need": "connection"},
+            desires=["stay close"],
+            intentions=["answer warmly"],
+            user_id=None,
+        )
+        self.assertIn("joy", summary.lower())
+        self.assertEqual(self.mem.get_self_narrative(), summary)
 
     # ------------------------------------------------------------------
     # Synaptic graph

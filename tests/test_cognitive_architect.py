@@ -8,12 +8,23 @@ from skills.neuro_affect import NeuroChemicalEngine
 class StubMemory:
     def __init__(self, recent=None):
         self.recent = recent or []
+        self.narrative = "Kai is present."
 
     def synthesize_personality_context(self) -> str:
         return "Kai remembers enough to form intentions."
 
     def search_by_resonance(self, *args, **kwargs):
         return list(self.recent)
+
+    def summarize_human_state(self, user_id=None) -> str:
+        return "Kai feels a pull toward connection."
+
+    def reflect_on_state(self, emotion_snapshot, desires=None, intentions=None, user_id=None) -> str:
+        self.narrative = "Kai feels reflective."
+        return self.narrative
+
+    def get_self_narrative(self) -> str:
+        return self.narrative
 
 
 class TestLLMCognitiveBridge(unittest.TestCase):
@@ -61,6 +72,13 @@ class TestLLMCognitiveBridge(unittest.TestCase):
             bridge.deliberate()
 
         self.assertGreater(neuro.chemicals.cortisol, before_cortisol)
+
+    def test_refresh_self_narrative_updates_bridge_cache(self) -> None:
+        neuro = NeuroChemicalEngine()
+        bridge = LLMCognitiveBridge(StubMemory(), neuro)
+        narrative = bridge.refresh_self_narrative("friend-1")
+        self.assertEqual(narrative, "Kai feels reflective.")
+        self.assertEqual(bridge.last_narrative, "Kai feels reflective.")
 
 
 if __name__ == "__main__":

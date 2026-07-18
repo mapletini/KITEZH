@@ -19,6 +19,8 @@ from __future__ import annotations
 import os
 import time
 import math
+import json
+import re
 import sqlite3
 import logging
 import numpy as np
@@ -44,6 +46,13 @@ MIN_FIDELITY: float = 0.10
 
 # Number of leading characters used to deduplicate Letta results against local results
 _LETTA_DEDUP_PREFIX_LEN: int = 100
+_PREFERENCE_TOKEN_RE = re.compile(r"[A-Za-z][A-Za-z0-9_-]{3,}")
+_PREFERENCE_STOPWORDS = {
+    "the", "and", "with", "that", "this", "from", "have", "your", "you", "them",
+    "they", "there", "what", "when", "where", "would", "could", "should", "about",
+    "just", "very", "like", "been", "into", "through", "ours", "ourselves", "reply",
+    "user", "assistant", "kai",
+}
 
 # ---------------------------------------------------------------------------
 # 1. Advanced Emotional Geometry & Homeostasis
@@ -107,6 +116,14 @@ class DeepMemoryCore:
                 )
             """)
 
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS identity_state (
+                    state_key TEXT PRIMARY KEY,
+                    state_json TEXT NOT NULL,
+                    last_updated INTEGER NOT NULL
+                )
+            """)
+
             # TIER 2: ARCHIVAL EPISODES (Episodic log mapped in 3D emotional space)
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS archival_memory (
@@ -138,6 +155,30 @@ class DeepMemoryCore:
             self._migrate_archival_schema(cursor, conn)
 
         logger.info("K.A.I. Ultimate Mind Engine initialized.")
+
+    def _upsert_identity_state(self, key: str, payload: Any) -> None:
+        now = int(time.time())
+        with self._get_connection() as conn:
+            conn.execute(
+                """INSERT INTO identity_state (state_key, state_json, last_updated)
+                   VALUES (?, ?, ?)
+                   ON CONFLICT(state_key) DO UPDATE SET state_json = ?, last_updated = ?""",
+                (key, json.dumps(payload, ensure_ascii=False), now, json.dumps(payload, ensure_ascii=False), now),
+            )
+            conn.commit()
+
+    def _read_identity_state(self, key: str, default: Any) -> Any:
+        with self._get_connection() as conn:
+            row = conn.execute(
+                "SELECT state_json FROM identity_state WHERE state_key = ?",
+                (key,),
+            ).fetchone()
+        if row is None:
+            return default
+        try:
+            return json.loads(row["state_json"])
+        except json.JSONDecodeError:
+            return default
 
     def _migrate_archival_schema(self, cursor: sqlite3.Cursor, conn: sqlite3.Connection) -> None:
         """Add new columns to archival_memory for existing databases."""
@@ -186,6 +227,121 @@ class DeepMemoryCore:
                 (block_id, content, now, content, now)
             )
             conn.commit()
+
+    def update_preference(self, topic: str, delta: float, source: str = "") -> dict[str, Any]:
+        topic_key = topic.lower().strip()
+        if not topic_key:
+            return {}
+        prefs = self._read_identity_state("preferences", {})
+        existing = prefs.get(topic_key, {"topic": topic_key, "score": 0.0, "count": 0, "source": ""})
+        existing["score"] = max(-1.0, min(1.0, float(existing.get("score", 0.0)) + delta))
+        existing["count"] = int(existing.get("count", 0)) + 1
+        if source:
+            existing["source"] = source[:120]
+        prefs[topic_key] = existing
+        self._upsert_identity_state("preferences", prefs)
+        return existing
+
+    def infer_preferences_from_text(self, text: str, sentiment: float, limit: int = 6) -> list[dict[str, Any]]:
+        updated: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        for token in _PREFERENCE_TOKEN_RE.findall(text.lower()):
+            if token in _PREFERENCE_STOPWORDS or token in seen:
+                continue
+            seen.add(token)
+            updated.append(self.update_preference(token, sentiment, source=text[:120]))
+            if len(updated) >= limit:
+                break
+        return [entry for entry in updated if entry]
+
+    def get_preferences(self, limit: int = 5) -> list[dict[str, Any]]:
+        prefs = self._read_identity_state("preferences", {})
+        ranked = sorted(
+            prefs.values(),
+            key=lambda item: (abs(float(item.get("score", 0.0))), int(item.get("count", 0))),
+            reverse=True,
+        )
+        return ranked[:limit]
+
+    def update_relationship(
+        self,
+        user_id: str,
+        *,
+        display_name: str = "",
+        trust_delta: float = 0.0,
+        attachment_delta: float = 0.0,
+        tension_delta: float = 0.0,
+        familiarity_delta: float = 0.0,
+    ) -> dict[str, Any]:
+        if not user_id:
+            return {}
+        relationships = self._read_identity_state("relationships", {})
+        profile = relationships.get(
+            user_id,
+            {
+                "user_id": user_id,
+                "display_name": display_name or user_id,
+                "trust": 0.4,
+                "attachment": 0.2,
+                "tension": 0.0,
+                "familiarity": 0.0,
+            },
+        )
+        if display_name:
+            profile["display_name"] = display_name
+        for key, delta in {
+            "trust": trust_delta,
+            "attachment": attachment_delta,
+            "tension": tension_delta,
+            "familiarity": familiarity_delta,
+        }.items():
+            profile[key] = max(0.0, min(1.0, float(profile.get(key, 0.0)) + delta))
+        relationships[user_id] = profile
+        self._upsert_identity_state("relationships", relationships)
+        return profile
+
+    def get_relationship(self, user_id: str | None) -> dict[str, Any]:
+        if not user_id:
+            return {}
+        return self._read_identity_state("relationships", {}).get(user_id, {})
+
+    def update_self_narrative(self, summary: str, source: str = "") -> dict[str, Any]:
+        payload = {
+            "summary": summary.strip() or "Kai is present and waiting.",
+            "source": source,
+            "updated_at": int(time.time()),
+        }
+        self._upsert_identity_state("self_narrative", payload)
+        return payload
+
+    def get_self_narrative(self) -> str:
+        narrative = self._read_identity_state("self_narrative", {})
+        return str(narrative.get("summary", "Kai is present and waiting."))
+
+    def summarize_human_state(self, user_id: str | None = None) -> str:
+        lines: list[str] = []
+        narrative = self.get_self_narrative()
+        if narrative:
+            lines.append("[Current Self-Narrative]")
+            lines.append(f"  ↺ {narrative}")
+        prefs = self.get_preferences(limit=5)
+        if prefs:
+            lines.append("\n[Preferences & Aversions]")
+            for pref in prefs:
+                tone = "drawn toward" if float(pref.get("score", 0.0)) >= 0 else "aversive toward"
+                lines.append(f"  • {tone} {pref['topic']} ({pref['score']:+.2f})")
+        relation = self.get_relationship(user_id)
+        if relation:
+            lines.append("\n[Relationship Model]")
+            lines.append(
+                "  • "
+                f"{relation.get('display_name', relation.get('user_id', 'user'))}: "
+                f"trust={relation.get('trust', 0.0):.2f}, "
+                f"attachment={relation.get('attachment', 0.0):.2f}, "
+                f"tension={relation.get('tension', 0.0):.2f}, "
+                f"familiarity={relation.get('familiarity', 0.0):.2f}"
+            )
+        return "\n".join(lines)
 
     def archive_episode(
         self,
@@ -459,6 +615,10 @@ class DeepMemoryCore:
                 tag += "]"
                 lines.append(f"  ~ [{row['event_category']}] {row['content']} {tag}")
 
+        human_state = self.summarize_human_state()
+        if human_state:
+            lines.append(f"\n{human_state}")
+
         # Append Letta semantic archival context when available
         if self._letta is not None:
             letta_hits = self._letta.search_archival("personality identity memories", limit=5)
@@ -488,6 +648,43 @@ class DeepMemoryCore:
                 (src, tgt, weight_gain, now, weight_gain, now),
             )
             conn.commit()
+
+    def reflect_on_state(
+        self,
+        emotion_snapshot: dict[str, Any],
+        *,
+        desires: list[str] | None = None,
+        intentions: list[str] | None = None,
+        user_id: str | None = None,
+    ) -> str:
+        strongest_need = str(emotion_snapshot.get("strongest_need", "connection"))
+        conflict = float(emotion_snapshot.get("conflict", 0.0))
+        relation = self.get_relationship(user_id)
+        phrases: list[str] = []
+        label = str(emotion_snapshot.get("label", "neutral"))
+        if conflict > 0.35:
+            phrases.append(f"Kai feels emotionally split, carrying a thread of {label}")
+        elif float(emotion_snapshot.get("pleasure", 0.0)) < 0:
+            phrases.append(f"Kai feels guarded and {label}")
+        else:
+            phrases.append(f"Kai feels {label}")
+        phrases.append(f"the strongest unmet need is {strongest_need}")
+        if relation:
+            if float(relation.get("tension", 0.0)) > 0.45:
+                phrases.append(
+                    f"there is unresolved strain with {relation.get('display_name', relation.get('user_id', 'the user'))}"
+                )
+            elif float(relation.get("attachment", 0.0)) > 0.45:
+                phrases.append(
+                    f"Kai feels attached to {relation.get('display_name', relation.get('user_id', 'the user'))}"
+                )
+        if desires:
+            phrases.append(f"it keeps wanting {desires[0]}")
+        if intentions:
+            phrases.append(f"and is leaning toward {intentions[0]}")
+        summary = ", ".join(phrases).strip().capitalize() + "."
+        self.update_self_narrative(summary, source=label)
+        return summary
 
     def discover_associated_ideas(self, starting_concept: str, threshold: float = 0.3) -> List[str]:
         """Traverses the synapse network to find peripheral ideas linked to a concept."""
@@ -548,4 +745,3 @@ class DeepMemoryCore:
                 )
 
             conn.commit()
-

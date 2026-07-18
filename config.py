@@ -143,6 +143,18 @@ LLAMACPP_MODEL: str = os.environ.get("KITEZH_LLAMACPP_MODEL", "nous-hermes-2-mix
 #: TCP port the built-in web chat server listens on.
 WEB_PORT: int = int(os.environ.get("KITEZH_WEB_PORT", "7860"))
 
+#: Shared JSON file storing the latest visual/display state for local and remote faces.
+DISPLAY_STATE_PATH: str = os.environ.get(
+    "KITEZH_DISPLAY_STATE_PATH",
+    os.path.join(WORKSPACE_PATH, "kai_display_state.json"),
+)
+
+#: Idle progression cadence in seconds for autonomous mood drift and display refresh.
+AUTONOMY_INTERVAL_SECONDS: float = float(os.environ.get("KITEZH_AUTONOMY_INTERVAL", "15.0"))
+
+#: Interval used by local terminal/framebuffer face processes when polling the display state file.
+DISPLAY_REFRESH_SECONDS: float = float(os.environ.get("KITEZH_DISPLAY_REFRESH_SECONDS", "1.0"))
+
 # ---------------------------------------------------------------------------
 # Dual-homing / network roles
 # ---------------------------------------------------------------------------

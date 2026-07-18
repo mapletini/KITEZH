@@ -33,17 +33,21 @@ from typing import Any
 
 import uvicorn
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect, HTTPException, Body
-from fastapi.responses import HTMLResponse, Response
+from fastapi.responses import HTMLResponse, Response, StreamingResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 
 import config
 from llm_backends import send_to_backend
 from skills.cognitive_architect import LLMCognitiveBridge
 from skills.deep_memory import DeepMemoryCore
+from skills.display_bridge import DisplayBridge, build_display_payload
 from skills.filesystem import WorkspaceWriter, WorkspaceReader
 from skills.letta_bridge import build_letta_bridge
 from skills.neuro_affect import NeuroChemicalEngine
-from skills.tapo_hub import TapoHub
+try:
+    from skills.tapo_hub import TapoHub
+except ImportError:
+    TapoHub = None
 
 logger = logging.getLogger(__name__)
 
@@ -65,10 +69,11 @@ _letta_bridge = build_letta_bridge()
 _web_memory = DeepMemoryCore(workspace_path=config.WORKSPACE_PATH, letta_bridge=_letta_bridge)
 _web_neuro = NeuroChemicalEngine()
 _web_cognitive = LLMCognitiveBridge(_web_memory, _web_neuro)
+_display_bridge = DisplayBridge()
 _web_interaction_count = 0
 
 # Tapo camera hub — wired to the web-mode neuro engine.
-_tapo_hub = TapoHub(neuro=_web_neuro)
+_tapo_hub = TapoHub(neuro=_web_neuro) if TapoHub is not None else None
 
 # Keep concept tokens at 4+ chars to reduce low-signal function words.
 _CONCEPT_TOKEN_RE = re.compile(r"[A-Za-z][A-Za-z0-9_-]{3,}")
@@ -267,8 +272,26 @@ def _process_web_cognitive_loop(user_id: str, display_name: str, user_content: s
     bridge_failed = "bridge unavailable" in kai_reply.lower()
     if bridge_failed:
         _web_neuro.apply_stimulus(uncertainty=0.15, frustration=0.05, user_id=user_id)
+        _web_memory.update_relationship(
+            user_id,
+            display_name=display_name,
+            trust_delta=-0.03,
+            tension_delta=0.04,
+            familiarity_delta=0.01,
+        )
+        _web_memory.infer_preferences_from_text(user_content, -0.02)
     else:
         _web_neuro.apply_stimulus(reward=0.1, success=0.2, user_id=user_id)
+        _web_memory.update_relationship(
+            user_id,
+            display_name=display_name,
+            trust_delta=0.04,
+            attachment_delta=0.03,
+            tension_delta=-0.02,
+            familiarity_delta=0.05,
+        )
+        _web_memory.infer_preferences_from_text(user_content, 0.03)
+        _web_memory.infer_preferences_from_text(kai_reply, 0.02)
         _web_cognitive.synchronize_attachment(
             {
                 "user_id": user_id,
@@ -299,6 +322,7 @@ def _process_web_cognitive_loop(user_id: str, display_name: str, user_content: s
     _reinforce_message_concepts(user_content)
     _reinforce_message_concepts(kai_reply)
     _web_cognitive.deliberate()
+    _publish_display_state("active", f"Speaking with {display_name}.")
 
     # Update Letta's human memory block with a brief user profile summary
     if _letta_bridge is not None:
@@ -314,6 +338,33 @@ def _process_web_cognitive_loop(user_id: str, display_name: str, user_content: s
         if _letta_bridge is not None:
             personality_ctx = _web_memory.synthesize_personality_context()
             _letta_bridge.send_dream_message(personality_ctx)
+        _publish_display_state("dreaming", "Kai is consolidating its memories.")
+
+
+def _publish_display_state(mode: str, message: str = "") -> None:
+    emotion = _web_neuro.emotion_snapshot()
+    payload = build_display_payload(
+        emotion,
+        desires=_web_cognitive.current_desires,
+        intentions=_web_cognitive.current_intentions,
+        narrative=_web_memory.get_self_narrative(),
+        preferences=_web_memory.get_preferences(limit=3),
+        relationship=_web_memory.get_relationship(_web_neuro.active_user_id),
+        mode=mode,
+        message=message,
+    )
+    _display_bridge.publish(payload)
+
+
+def _advance_web_autonomy() -> None:
+    snapshot = _web_neuro.advance_autonomous_state(config.AUTONOMY_INTERVAL_SECONDS)
+    _web_memory.reflect_on_state(
+        snapshot,
+        desires=_web_cognitive.current_desires,
+        intentions=_web_cognitive.current_intentions,
+        user_id=_web_neuro.active_user_id,
+    )
+    _publish_display_state("idle", "Kai is idly reflecting.")
 
 
 async def _dream_consolidation_daemon() -> None:
@@ -325,8 +376,18 @@ async def _dream_consolidation_daemon() -> None:
             if _letta_bridge is not None:
                 personality_ctx = _web_memory.synthesize_personality_context()
                 _letta_bridge.send_dream_message(personality_ctx)
+            _publish_display_state("dreaming", "Kai is consolidating its memories.")
         except Exception as exc:
             logger.exception("Background dream consolidation failed: %s", exc)
+
+
+async def _autonomy_daemon() -> None:
+    while True:
+        await asyncio.sleep(config.AUTONOMY_INTERVAL_SECONDS)
+        try:
+            _advance_web_autonomy()
+        except Exception as exc:
+            logger.exception("Background autonomy update failed: %s", exc)
 
 
 # ---------------------------------------------------------------------------
@@ -338,15 +399,24 @@ _init_chat_db()
 
 @asynccontextmanager
 async def _lifespan(_: FastAPI):
-    _tapo_hub.start()
+    if _tapo_hub is not None:
+        _tapo_hub.start()
+    _web_cognitive.refresh_self_narrative()
+    _publish_display_state("idle", "Kai is waking up.")
     background_task = asyncio.create_task(_dream_consolidation_daemon())
+    autonomy_task = asyncio.create_task(_autonomy_daemon())
     try:
         yield
     finally:
         background_task.cancel()
+        autonomy_task.cancel()
         with suppress(asyncio.CancelledError):
             await background_task
-        _tapo_hub.stop()
+        with suppress(asyncio.CancelledError):
+            await autonomy_task
+        _publish_display_state("idle", "Kai is resting.")
+        if _tapo_hub is not None:
+            _tapo_hub.stop()
 
 
 app = FastAPI(title="K.A.I. Chat Interface", docs_url=None, redoc_url=None, lifespan=_lifespan)
@@ -450,6 +520,64 @@ async def online_users() -> dict[str, Any]:
 async def emotion_state() -> dict[str, Any]:
     """Return K.A.I.'s current emotion snapshot from web-mode neuro state."""
     return {"emotion": _web_neuro.emotion_snapshot()}
+
+
+@app.get("/api/display/state")
+async def display_state() -> dict[str, Any]:
+    return _display_bridge.latest()
+
+
+@app.get("/api/display/stream")
+async def display_stream() -> StreamingResponse:
+    async def event_gen():
+        last_version = None
+        while True:
+            state = _display_bridge.latest()
+            version = state.get("version")
+            if version != last_version:
+                yield f"data: {json.dumps(state, ensure_ascii=False)}\n\n"
+                last_version = version
+            await asyncio.sleep(1.0)
+
+    return StreamingResponse(event_gen(), media_type="text/event-stream")
+
+
+@app.get("/face", response_class=HTMLResponse, include_in_schema=False)
+async def face_page() -> HTMLResponse:
+    return HTMLResponse(
+        """<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>K.A.I. Face</title>
+<style>
+body{margin:0;background:#060a12;color:#dff4ff;font-family:system-ui,Segoe UI,sans-serif;display:flex;min-height:100vh;align-items:center;justify-content:center}
+.wrap{display:flex;flex-direction:column;align-items:center;gap:18px}
+.orb{width:38vmin;height:38vmin;border-radius:50%;background:radial-gradient(circle at 50% 45%,#8ce3ff,#102136 65%,#060a12 100%);position:relative;box-shadow:0 0 60px rgba(100,200,255,.25)}
+.eye{position:absolute;top:35%;width:14%;height:14%;border-radius:50%;background:#f5fbff}
+.eye.left{left:28%}.eye.right{right:28%}
+.pupil{position:absolute;inset:28%;border-radius:50%;background:#09111f}
+.mouth{position:absolute;left:32%;right:32%;bottom:24%;height:18%;border-bottom:4px solid #f5fbff;border-radius:0 0 120px 120px}
+.meta{opacity:.85;text-align:center;max-width:70ch}
+</style></head><body>
+<div class="wrap"><div class="orb" id="orb"><div class="eye left"><div class="pupil"></div></div><div class="eye right"><div class="pupil"></div></div><div class="mouth" id="mouth"></div></div>
+<div class="meta"><h2 id="emotion">Kai</h2><div id="narrative">Waiting…</div></div></div>
+<script>
+const orb=document.getElementById('orb'), mouth=document.getElementById('mouth');
+const emotionEl=document.getElementById('emotion'), narrativeEl=document.getElementById('narrative');
+function applyState(state){
+  const emotion=state.emotion||{}, pad=emotion.pad||[0,0,0], label=emotion.label||'neutral';
+  const colors={joy:['#ffe67a','#17181d'],love:['#ff9dd7','#1b1020'],trust:['#8affd0','#10201b'],fear:['#8cb6ff','#0e1320'],sadness:['#7ea1ff','#0d1220'],anger:['#ff8c8c','#220d0d'],anticipation:['#ffba6d','#24170a']};
+  const pair=colors[label]||['#8ce3ff','#102136'];
+  orb.style.background=`radial-gradient(circle at 50% 45%,${pair[0]},${pair[1]} 65%,#060a12 100%)`;
+  mouth.style.borderBottomLeftRadius=(pad[0] >= 0 ? 120 : 20)+'px';
+  mouth.style.borderBottomRightRadius=(pad[0] >= 0 ? 120 : 20)+'px';
+  mouth.style.transform=`translateY(${pad[1]*-8}px) scaleY(${pad[0] >= 0 ? 1 : -.5})`;
+  emotionEl.textContent=`${label} · need: ${emotion.strongest_need||'connection'}`;
+  narrativeEl.textContent=state.narrative||'Kai is quiet but present.';
+}
+const es=new EventSource('/api/display/stream');
+es.onmessage=(evt)=>applyState(JSON.parse(evt.data));
+fetch('/api/display/state').then(r=>r.json()).then(applyState);
+</script></body></html>"""
+    )
 
 
 @app.websocket("/ws/{user_id}")

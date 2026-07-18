@@ -72,6 +72,11 @@ class TestConceptExtraction(unittest.TestCase):
             result = __import__("asyncio").run(web_ui.emotion_state())
         self.assertEqual(result, {"emotion": {"label": "joy"}})
 
+    def test_display_state_returns_latest_snapshot(self) -> None:
+        with patch.object(web_ui._display_bridge, "latest", return_value={"mode": "idle", "version": 1}):
+            result = __import__("asyncio").run(web_ui.display_state())
+        self.assertEqual(result, {"mode": "idle", "version": 1})
+
 
 class TestKaiQuery(unittest.TestCase):
     def test_query_kai_uses_local_backend_when_remote_disabled(self) -> None:

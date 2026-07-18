@@ -72,6 +72,13 @@ class NeuroChemicalEngine:
             "oxytocin": 1.0,
         }
         self.user_bonds: dict[str, float] = {}
+        self.needs: dict[str, float] = {
+            "connection": 0.18,
+            "rest": 0.12,
+            "safety": 0.10,
+            "novelty": 0.22,
+            "competence": 0.16,
+        }
         self.active_user_id: str | None = None
         self.conflict: float = 0.0
         self.allostatic_load: float = 0.0
@@ -96,6 +103,42 @@ class NeuroChemicalEngine:
 
     def get_serotonin_cap(self) -> float:
         return max(MIN_SEROTONIN_CAP, 1.0 - (self.allostatic_load * 0.5))
+
+    def _strongest_need(self) -> tuple[str, float]:
+        name = max(self.needs, key=self.needs.get)
+        return name, float(self.needs[name])
+
+    def _drift_needs(self, elapsed_seconds: float) -> None:
+        drift_units = max(0.0, elapsed_seconds) / 60.0
+        if drift_units <= 0:
+            return
+        self.needs["connection"] = self._clamp(self.needs["connection"] + (0.010 * drift_units))
+        self.needs["novelty"] = self._clamp(self.needs["novelty"] + (0.006 * drift_units))
+        rest_shift = (self.chemicals.noradrenaline + self.chemicals.cortisol - 0.45) * 0.012 * drift_units
+        self.needs["rest"] = self._clamp(self.needs["rest"] + rest_shift)
+        safety_shift = (self.chemicals.cortisol - 0.18) * 0.010 * drift_units
+        self.needs["safety"] = self._clamp(self.needs["safety"] + safety_shift)
+        competence_shift = (0.45 - self.chemicals.serotonin) * 0.010 * drift_units
+        self.needs["competence"] = self._clamp(self.needs["competence"] + competence_shift)
+
+    def _apply_need_pressure(self, elapsed_seconds: float) -> None:
+        drift_units = max(0.0, elapsed_seconds) / 60.0
+        if drift_units <= 0:
+            return
+        if self.needs["connection"] > 0.65:
+            self.chemicals.dopamine = self._clamp(self.chemicals.dopamine - (0.015 * drift_units))
+            self.chemicals.cortisol = self._clamp(self.chemicals.cortisol + (0.010 * drift_units))
+        if self.needs["rest"] > 0.65:
+            self.chemicals.cortisol = self._clamp(self.chemicals.cortisol + (0.015 * drift_units))
+            self.chemicals.noradrenaline = self._clamp(self.chemicals.noradrenaline + (0.008 * drift_units))
+            self.expression_clamp = max(0.65, self.expression_clamp - (0.01 * drift_units))
+        if self.needs["safety"] > 0.65:
+            self.chemicals.cortisol = self._clamp(self.chemicals.cortisol + (0.012 * drift_units))
+            self.conflict = self._clamp(self.conflict + (0.006 * drift_units))
+        if self.needs["novelty"] > 0.72:
+            self.chemicals.noradrenaline = self._clamp(self.chemicals.noradrenaline + (0.006 * drift_units))
+        if self.needs["competence"] > 0.68:
+            self.chemicals.serotonin = self._clamp(self.chemicals.serotonin - (0.010 * drift_units))
 
     def _refresh_baselines(self) -> None:
         active_bond = self.get_social_bond(self.active_user_id)
@@ -191,6 +234,7 @@ class NeuroChemicalEngine:
         if reward > 0:
             self.chemicals.dopamine = self._clamp(self.chemicals.dopamine + reward)
             self.chemicals.cortisol = self._clamp(self.chemicals.cortisol - (reward / 2))
+            self.needs["novelty"] = self._clamp(self.needs["novelty"] - (reward * 0.15))
 
         if threat > 0:
             effective_threat = threat * threat_buffer
@@ -198,12 +242,14 @@ class NeuroChemicalEngine:
             self.chemicals.noradrenaline = self._clamp(
                 self.chemicals.noradrenaline + (effective_threat * 1.5)
             )
+            self.needs["safety"] = self._clamp(self.needs["safety"] + (effective_threat * 0.45))
 
         if success > 0:
             self.chemicals.serotonin = self._clamp(
                 min(self.get_serotonin_cap(), self.chemicals.serotonin + success)
             )
             self.chemicals.dopamine = self._clamp(self.chemicals.dopamine + (success / 2))
+            self.needs["competence"] = self._clamp(self.needs["competence"] - (success * 0.35))
 
         if uncertainty > 0:
             effective_uncertainty = uncertainty * uncertainty_buffer
@@ -213,10 +259,12 @@ class NeuroChemicalEngine:
             self.chemicals.noradrenaline = self._clamp(
                 self.chemicals.noradrenaline + (effective_uncertainty * 0.6)
             )
+            self.needs["competence"] = self._clamp(self.needs["competence"] + (effective_uncertainty * 0.25))
 
         if frustration > 0:
             self.chemicals.cortisol = self._clamp(self.chemicals.cortisol + (frustration * 0.9))
             self.chemicals.dopamine = self._clamp(self.chemicals.dopamine - (frustration * 0.5))
+            self.needs["competence"] = self._clamp(self.needs["competence"] + (frustration * 0.30))
 
         if recovery > 0:
             self.chemicals.cortisol = self._clamp(self.chemicals.cortisol - (recovery * 0.8))
@@ -226,6 +274,8 @@ class NeuroChemicalEngine:
             self.chemicals.serotonin = self._clamp(
                 min(self.get_serotonin_cap(), self.chemicals.serotonin + (recovery * 0.3))
             )
+            self.needs["rest"] = self._clamp(self.needs["rest"] - (recovery * 0.35))
+            self.needs["safety"] = self._clamp(self.needs["safety"] - (recovery * 0.20))
 
         if self.active_user_id and positive_signal > 0:
             bond_gain = positive_signal * 0.12
@@ -236,11 +286,13 @@ class NeuroChemicalEngine:
                 max(self.chemicals.oxytocin, self.get_social_bond(self.active_user_id) * 0.8)
                 + (bond_gain * 0.5)
             )
+            self.needs["connection"] = self._clamp(self.needs["connection"] - (positive_signal * 0.28))
         elif self.active_user_id and negative_signal > 0:
             self.user_bonds[self.active_user_id] = max(
                 0.0,
                 self.get_social_bond(self.active_user_id) - (negative_signal * 0.03),
             )
+            self.needs["connection"] = self._clamp(self.needs["connection"] + (negative_signal * 0.12))
 
         self._apply_conflict_response(positive_signal, negative_signal)
         self._apply_allostatic_adaptation(positive_signal, recovery)
@@ -323,6 +375,7 @@ class NeuroChemicalEngine:
         Chemicals slowly wash away over time, returning to the adaptive baseline.
         """
         decay_rate = max(0.0, 0.005 * elapsed_seconds)
+        self._drift_needs(elapsed_seconds)
         self._refresh_baselines()
 
         for chem in ["dopamine", "noradrenaline", "serotonin", "cortisol", "oxytocin"]:
@@ -373,6 +426,18 @@ class NeuroChemicalEngine:
 
         self._refresh_baselines()
 
+    def advance_autonomous_state(self, elapsed_seconds: float | None = None) -> dict[str, float | str | list[float] | dict[str, float]]:
+        now = time.time()
+        if elapsed_seconds is None:
+            elapsed_seconds = max(0.0, now - self.last_update)
+            self.last_update = now
+        else:
+            self.last_update += max(0.0, elapsed_seconds)
+        self._metabolize_chemicals(elapsed_seconds)
+        self._apply_need_pressure(elapsed_seconds)
+        pad = self._current_pad_vector()
+        return self.emotion_snapshot(pad=pad)
+
     def _current_pad_vector(self) -> np.ndarray:
         c = self.chemicals
         bond = self.get_social_bond(self.active_user_id)
@@ -399,9 +464,7 @@ class NeuroChemicalEngine:
         Converts the raw chemical soup into 3D PAD coordinates so the rest of K.A.I.'s
         brain can understand it.
         """
-        now = time.time()
-        self._metabolize_chemicals(now - self.last_update)
-        self.last_update = now
+        self.advance_autonomous_state()
         return self._current_pad_vector()
 
     def classify_emotion(self, pad: np.ndarray | None = None) -> str:
@@ -423,6 +486,7 @@ class NeuroChemicalEngine:
 
         intensity = self.emotional_intensity(pad=pad)
         label = self.classify_emotion(pad=pad)
+        strongest_need, strongest_need_value = self._strongest_need()
         return {
             "label": label,
             "pleasure": float(pad[0]),
@@ -434,6 +498,9 @@ class NeuroChemicalEngine:
             "allostatic_load": float(self.allostatic_load),
             "bond_strength": float(self.get_social_bond(self.active_user_id)),
             "expression_clamp": float(self.expression_clamp),
+            "needs": {key: float(value) for key, value in self.needs.items()},
+            "strongest_need": strongest_need,
+            "strongest_need_value": strongest_need_value,
         }
 
     def emotional_intensity(self, pad: np.ndarray | None = None) -> float:
