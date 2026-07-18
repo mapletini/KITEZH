@@ -32,6 +32,8 @@ K.A.I. is completely isolated from the remote database schema and web traffic, i
 *   A deployed remote API backend to bridge to.
 *   Optional for local audio playback: `sounddevice` (the engine still runs without it).
     * If it is missing, interactive mode still works and logs a warning while skipping speaker output.
+*   Optional for Tapo camera wakeword listening: `openwakeword`.
+    * On Linux this may be unavailable on newer Python releases because `tflite-runtime` wheels are not published for every interpreter version. If it is missing, wakeword listeners stay disabled while the rest of Kitezh continues to run.
 
 ### Initialization
 ```bash
@@ -45,8 +47,8 @@ source .venv/bin/activate
 
 # 3. Install requirements
 pip install -r requirements.txt
-# Optional audio dependency (for speaker playback in interactive mode)
-pip install sounddevice
+# Optional wakeword dependency (skip if openwakeword/tflite-runtime is unavailable on your Python/platform)
+pip install -r requirements-wakeword.txt
 
 ```
 ### Configuration
