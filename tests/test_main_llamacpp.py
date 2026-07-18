@@ -21,10 +21,10 @@ class TestLlamaCppBackend(unittest.TestCase):
                 {"message": {"role": "assistant", "content": "hello from llama.cpp"}}
             ]
         }
-        with patch.object(main.config, "LLAMACPP_BASE_URL", "http://localhost:8080"), patch.object(
-            main.config, "LLAMACPP_MODEL", "nous-hermes-2-mixtral-8x7b-dpo-gguf"
+        with patch.object(llm_backends.config, "LLAMACPP_BASE_URL", "http://localhost:8080"), patch.object(
+            llm_backends.config, "LLAMACPP_MODEL", "nous-hermes-2-mixtral-8x7b-dpo-gguf"
         ), patch.object(llm_backends.requests, "post", return_value=fake_response) as mocked_post:
-            result = main.send_to_llamacpp("test prompt")
+            result = llm_backends.send_to_llamacpp("test prompt")
 
         self.assertEqual(result, "hello from llama.cpp")
         mocked_post.assert_called_once()
@@ -35,7 +35,7 @@ class TestLlamaCppBackend(unittest.TestCase):
     def test_send_to_llamacpp_raises_runtime_error_on_connection_failure(self) -> None:
         with patch.object(llm_backends.requests, "post", side_effect=requests.exceptions.ConnectionError("offline")):
             with self.assertRaises(RuntimeError) as captured:
-                main.send_to_llamacpp("test prompt")
+                llm_backends.send_to_llamacpp("test prompt")
         self.assertIn("Cannot connect to llama.cpp server", str(captured.exception))
 
     def test_main_health_exits_cleanly_when_remote_disabled(self) -> None:
