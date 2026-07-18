@@ -38,6 +38,15 @@ class TestLlamaCppBackend(unittest.TestCase):
                 llm_backends.send_to_llamacpp("test prompt")
         self.assertIn("Cannot connect to llama.cpp server", str(captured.exception))
 
+    def test_send_to_llamacpp_raises_runtime_error_on_invalid_json(self) -> None:
+        fake_response = Mock()
+        fake_response.raise_for_status.return_value = None
+        fake_response.json.side_effect = requests.exceptions.JSONDecodeError("bad json", "{}", 0)
+        with patch.object(llm_backends.requests, "post", return_value=fake_response):
+            with self.assertRaises(RuntimeError) as captured:
+                llm_backends.send_to_llamacpp("test prompt")
+        self.assertIn("returned invalid JSON", str(captured.exception))
+
     def test_main_health_exits_cleanly_when_remote_disabled(self) -> None:
         with patch.object(main.config, "REMOTE_ENABLED", False), patch("builtins.print") as mock_print:
             exit_code = main.main(["--health"])
@@ -68,6 +77,16 @@ class TestLlamaCppBackend(unittest.TestCase):
              patch("builtins.print"):
             exit_code = main.main(["--init", "system_manifest.md", "--backend", "llamacpp"])
         self.assertEqual(exit_code, 0)
+
+    def test_main_init_llamacpp_returns_error_on_invalid_json(self) -> None:
+        fake_response = Mock()
+        fake_response.raise_for_status.return_value = None
+        fake_response.json.side_effect = requests.exceptions.JSONDecodeError("bad json", "{}", 0)
+        with patch.object(main.config, "REMOTE_ENABLED", False), \
+             patch.object(llm_backends.requests, "post", return_value=fake_response), \
+             patch("builtins.print"):
+            exit_code = main.main(["--init", "system_manifest.md", "--backend", "llamacpp"])
+        self.assertEqual(exit_code, 1)
 
 
 if __name__ == "__main__":
