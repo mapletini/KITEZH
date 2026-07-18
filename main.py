@@ -469,9 +469,9 @@ def main(argv: list[str] | None = None) -> int:
                             )
 
                         if sd is not None:
-                            spoken_text = reply_text if context_data is not None else ""
+                            text_for_audio = reply_text if context_data is not None else ""
                             if audio_splicer is not None:
-                                splice_plan = build_synthetic_splice_plan(spoken_text)
+                                splice_plan = build_synthetic_splice_plan(text_for_audio)
                                 wave_data = audio_splicer.splice_sequence(splice_plan, synthetic_voice_generator=audio.generate_frame)
                                 if len(wave_data) == 0:
                                     wave_data = audio.generate_frame(duration=DEFAULT_AUDIO_DURATION_SECONDS)
