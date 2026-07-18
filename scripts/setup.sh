@@ -222,7 +222,7 @@ if [[ -f "${WAKEWORD_REQUIREMENTS}" ]]; then
     if pip install --quiet -r "${WAKEWORD_REQUIREMENTS}"; then
         ok "Optional wakeword dependencies installed."
     else
-        warn "Optional wake word dependencies could not be installed on this Python/platform."
+        warn "Optional openwakeword dependencies could not be installed on this Python/platform."
         warn "Camera wake word listening will stay disabled until openwakeword can be installed manually."
     fi
 fi
