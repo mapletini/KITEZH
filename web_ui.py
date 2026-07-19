@@ -19,13 +19,17 @@ Or directly::
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import ipaddress
 import json
 import logging
+import os
 import requests
 import re
+import secrets
 import sqlite3
 import time
+import unicodedata
 from contextlib import asynccontextmanager, suppress
 from itertools import combinations
 from pathlib import Path
@@ -121,7 +125,88 @@ def _init_chat_db() -> None:
         if "channel" not in columns:
             conn.execute("ALTER TABLE messages ADD COLUMN channel TEXT NOT NULL DEFAULT 'user'")
         conn.execute("UPDATE messages SET thread_id = user_id WHERE thread_id = ''")
+
+        # Persistent identity table: maps a normalised name key → stable thread.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS user_identities (
+                name_key      TEXT PRIMARY KEY,
+                thread_id     TEXT NOT NULL UNIQUE,
+                passcode_hash TEXT NOT NULL DEFAULT ''
+            )
+        """)
         conn.commit()
+
+
+# scrypt parameters — N=2**15 provides good GPU resistance for a private service.
+_SCRYPT_N = 2 ** 15
+_SCRYPT_R = 8
+_SCRYPT_P = 1
+_SCRYPT_DKLEN = 32
+
+
+def _hash_passcode(passcode: str) -> str:
+    """Return a storable ``{salt_hex}${hash_hex}`` string using scrypt."""
+    salt = os.urandom(16)
+    dk = hashlib.scrypt(passcode.encode(), salt=salt, n=_SCRYPT_N, r=_SCRYPT_R, p=_SCRYPT_P, dklen=_SCRYPT_DKLEN)
+    return salt.hex() + "$" + dk.hex()
+
+
+def _verify_passcode(passcode: str, stored: str) -> bool:
+    """Return True if *passcode* matches the stored scrypt hash."""
+    try:
+        salt_hex, hash_hex = stored.split("$", 1)
+    except ValueError:
+        return False
+    salt = bytes.fromhex(salt_hex)
+    dk = hashlib.scrypt(passcode.encode(), salt=salt, n=_SCRYPT_N, r=_SCRYPT_R, p=_SCRYPT_P, dklen=_SCRYPT_DKLEN)
+    return secrets.compare_digest(dk.hex(), hash_hex)
+
+
+def _lookup_or_create_identity(
+    display_name: str,
+    passcode: str,
+) -> tuple[str, bool, str]:
+    """Return (thread_id, ok, error_message).
+
+    First visit with a given name creates a new stable thread and stores an
+    optional passcode hash.  Subsequent visits verify the passcode when one
+    was set, or allow free entry when none was set.
+
+    Passcodes are hashed with hashlib.scrypt (salt stored alongside the hash
+    as ``{salt_hex}${hash_hex}``) to protect against brute-force and rainbow
+    table attacks.
+    """
+    name_key = unicodedata.normalize("NFKC", display_name).strip().lower()
+    if not name_key:
+        return "", False, "Handle cannot be empty."
+
+    passcode = passcode or ""
+    with _chat_conn() as conn:
+        row = conn.execute(
+            "SELECT thread_id, passcode_hash FROM user_identities WHERE name_key = ?",
+            (name_key,),
+        ).fetchone()
+
+        if row is None:
+            # New identity — create a stable thread_id with cryptographic entropy.
+            thread_id = "t_" + secrets.token_hex(16)
+            stored_hash = _hash_passcode(passcode) if passcode else ""
+            conn.execute(
+                "INSERT INTO user_identities (name_key, thread_id, passcode_hash) VALUES (?,?,?)",
+                (name_key, thread_id, stored_hash),
+            )
+            conn.commit()
+            return thread_id, True, ""
+
+        thread_id = row["thread_id"]
+        stored_hash = row["passcode_hash"]
+
+        if stored_hash:
+            # Account has a passcode — verify.
+            if not _verify_passcode(passcode, stored_hash):
+                return "", False, "Incorrect passcode."
+
+        return thread_id, True, ""
 
 
 def _save_message(
@@ -575,6 +660,24 @@ async def chat_log(user_id: str, limit: int = 100) -> dict[str, Any]:
     return {"messages": _fetch_messages(user_id, limit)}
 
 
+@app.post("/api/auth/join")
+async def auth_join(body: dict[str, str] = Body(...)) -> dict[str, Any]:
+    """Resolve or create a persistent identity for a display name.
+
+    Body: ``{"display_name": "...", "passcode": "..."}``
+
+    Returns ``{"thread_id": "..."}`` on success, or HTTP 401/422 on error.
+    """
+    display_name = (body.get("display_name") or "").strip()
+    passcode = body.get("passcode") or ""
+    if not display_name:
+        raise HTTPException(status_code=422, detail="Handle cannot be empty.")
+    thread_id, ok, error = _lookup_or_create_identity(display_name, passcode)
+    if not ok:
+        raise HTTPException(status_code=401, detail=error)
+    return {"thread_id": thread_id}
+
+
 @app.get("/api/chat/users")
 async def online_users() -> dict[str, Any]:
     """Return the list of currently connected users."""
@@ -648,19 +751,29 @@ fetch('/api/display/state').then(r=>r.json()).then(applyState);
 
 
 @app.websocket("/ws/{user_id}")
-async def websocket_endpoint(ws: WebSocket, user_id: str, display_name: str = "Anonymous") -> None:
+async def websocket_endpoint(
+    ws: WebSocket,
+    user_id: str,
+    display_name: str = "Anonymous",
+    thread_id: str = "",
+) -> None:
     """
     Real-time chat endpoint.  Connect with::
 
-        ws://<host>:<port>/ws/<user_id>?display_name=<name>
+        ws://<host>:<port>/ws/<user_id>?display_name=<name>&thread_id=<tid>
+
+    ``thread_id`` is the stable persistent thread returned by ``/api/auth/join``.
+    When omitted the session-scoped ``user_id`` is used as the thread (legacy
+    behaviour preserved for backwards compatibility).
 
     On connect the client receives a ``history`` frame containing the last 50
-    messages from its own private thread, then live ``message`` frames.
+    messages from its persistent thread, then live ``message`` frames.
     """
+    effective_thread = thread_id if thread_id else user_id
     await manager.connect(user_id, display_name, ws)
 
     # Send private history to this user only.
-    await ws.send_text(json.dumps({"type": "history", "messages": _fetch_messages(user_id, 50)}))
+    await ws.send_text(json.dumps({"type": "history", "messages": _fetch_messages(effective_thread, 50)}))
 
     try:
         while True:
@@ -670,7 +783,7 @@ async def websocket_endpoint(ws: WebSocket, user_id: str, display_name: str = "A
             if not content:
                 continue
             timestamp = int(time.time())
-            _save_message(user_id, user_id, display_name, content, channel="user")
+            _save_message(effective_thread, user_id, display_name, content, channel="user")
             await manager.send_to(user_id, {
                 "type": "message",
                 "user_id": user_id,
@@ -679,9 +792,9 @@ async def websocket_endpoint(ws: WebSocket, user_id: str, display_name: str = "A
                 "timestamp": timestamp,
             })
 
-            kai_reply = _query_kai(user_id, display_name, content)
+            kai_reply = _query_kai(effective_thread, display_name, content)
             kai_timestamp = int(time.time())
-            _save_message(user_id, "kai", "K.A.I.", kai_reply, channel="kai")
+            _save_message(effective_thread, "kai", "K.A.I.", kai_reply, channel="kai")
             await manager.send_to(user_id, {
                 "type": "message",
                 "user_id": "kai",
@@ -689,7 +802,7 @@ async def websocket_endpoint(ws: WebSocket, user_id: str, display_name: str = "A
                 "content": kai_reply,
                 "timestamp": kai_timestamp,
             })
-            _process_web_cognitive_loop(user_id, display_name, content, kai_reply)
+            _process_web_cognitive_loop(effective_thread, display_name, content, kai_reply)
     except WebSocketDisconnect:
         manager.disconnect(user_id)
 
