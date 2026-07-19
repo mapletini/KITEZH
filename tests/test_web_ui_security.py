@@ -231,7 +231,7 @@ class TestPersistentIdentity(unittest.TestCase):
         web_ui._lookup_or_create_identity("Kai", "hunter2")
         tid, ok, err = web_ui._lookup_or_create_identity("Kai", "hunter2")
         self.assertTrue(ok)
-        self.assertFalse(err)
+        self.assertEqual(err, "")
 
     def test_wrong_passcode_is_rejected(self) -> None:
         web_ui._lookup_or_create_identity("Kai", "hunter2")
