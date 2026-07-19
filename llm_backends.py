@@ -80,16 +80,21 @@ def send_to_letta(prompt: str, agent_id: str | None = None) -> str:
         raise RuntimeError(f"Letta request failed: {exc}") from exc
 
 
-def send_to_llamacpp(prompt: str, model: str | None = None) -> str:
+def send_to_llamacpp(
+    prompt: str,
+    model: str | None = None,
+    system: str | None = None,
+) -> str:
     """Send *prompt* to a llama.cpp OpenAI-compatible endpoint and return text."""
     target_model = model or config.LLAMACPP_MODEL
     url = f"{config.LLAMACPP_BASE_URL}/v1/chat/completions"
+    messages: list[dict[str, Any]] = []
+    if system:
+        messages.append({"role": "system", "content": system})
+    messages.append({"role": "user", "content": prompt})
     payload: dict[str, Any] = {
         "model": target_model,
-        "messages": [
-            {"role": "system", "content": "You are a helpful assistant."},
-            {"role": "user", "content": prompt},
-        ],
+        "messages": messages,
         "stream": False,
     }
 
@@ -121,13 +126,14 @@ def send_to_backend(
     backend: str | None = None,
     model: str | None = None,
     agent_id: str | None = None,
+    system: str | None = None,
 ) -> str:
     """Send *prompt* to the configured local backend."""
     target_backend = backend or config.LLM_BACKEND
     if target_backend == "ollama":
         return send_to_ollama(prompt, model=model)
     if target_backend == "llamacpp":
-        return send_to_llamacpp(prompt, model=model)
+        return send_to_llamacpp(prompt, model=model, system=system)
     if target_backend == "letta":
         return send_to_letta(prompt, agent_id=agent_id)
     raise RuntimeError(f"Unsupported backend: {target_backend}")
