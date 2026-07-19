@@ -63,7 +63,7 @@ def send_to_letta(
         )
 
     url = f"{config.LETTA_BASE_URL}/v1/agents/{target_agent}/messages"
-    messages: list[dict[str, str]] = []
+    messages: list[dict[str, Any]] = []
     if system:
         messages.append({"role": "system", "content": system})
     messages.append({"role": "user", "content": prompt})

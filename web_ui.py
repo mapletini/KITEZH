@@ -49,6 +49,7 @@ from skills.filesystem import WorkspaceWriter, WorkspaceReader
 from skills.letta_bridge import build_letta_bridge
 from skills.neuro_affect import NeuroChemicalEngine
 from skills.tool_executor import TOOL_DEFINITIONS, make_tool_executor
+from skills.awareness import format_awareness_block
 try:
     from skills.tapo_hub import TapoHub
 except ImportError:
@@ -311,32 +312,40 @@ def _tool_names() -> list[str]:
     for tool in TOOL_DEFINITIONS:
         fn = tool.get("function", {})
         name = fn.get("name")
-        if isinstance(name, str) and name:
+        if name and isinstance(name, str):
             names.append(name)
     return names
 
 
+def _active_tool_names() -> list[str]:
+    # Only the local llamacpp path uses the agentic tool loop; remote mode and
+    # other backends are plain text generation without callable tool execution.
+    if config.REMOTE_ENABLED or config.LLM_BACKEND != "llamacpp":
+        return []
+    return _tool_names()
+
+
 def _awareness_summary_for_prompt() -> str:
     bridge_mode = "remote bridge" if config.REMOTE_ENABLED else "local backend"
-    tools_active = (not config.REMOTE_ENABLED) and config.LLM_BACKEND == "llamacpp"
-    available_tools = ", ".join(_tool_names()) if tools_active else "none"
-    return (
-        "[Operational awareness:\n"
-        f"- Interface: web chat\n"
-        f"- Runtime mode: {bridge_mode}\n"
-        f"- Local backend setting: {config.LLM_BACKEND}\n"
-        f"- Callable tools available right now: {available_tools}\n"
-        "- Never claim tools outside this exact list; if none are available, say so directly.]"
+    active_tools = _active_tool_names()
+    available_tools = ", ".join(active_tools) if active_tools else "none"
+    return format_awareness_block(
+        (
+            "Interface: web chat",
+            f"Runtime mode: {bridge_mode}",
+            f"Local backend setting: {config.LLM_BACKEND}",
+            f"Callable tools available right now: {available_tools}",
+            "Never state that you can access or use tools outside this exact list; if none are available, say so directly.",
+        )
     )
 
 
 def _awareness_metadata() -> dict[str, Any]:
-    tools_active = (not config.REMOTE_ENABLED) and config.LLM_BACKEND == "llamacpp"
     return {
         "interface": "web_chat",
         "remote_enabled": config.REMOTE_ENABLED,
         "local_backend": config.LLM_BACKEND,
-        "tools_available": _tool_names() if tools_active else [],
+        "tools_available": _active_tool_names(),
     }
 
 
@@ -346,7 +355,8 @@ def _build_kai_system_prompt(user_id: str | None = None) -> str:
         "You are K.A.I. (Kitezh Autonomous Intelligence), an emotionally-aware AI with a "
         "rich inner life shaped by your memories, relationships, and emotional state. "
         "Respond as yourself — curious, thoughtful, and genuine. "
-        "You may use the provided tools when they help you give a better response.",
+        "You may use the provided tools when they help you give a better response. "
+        "Never claim you can access tools that are not explicitly available in this runtime.",
     ]
     try:
         personality = _web_memory.synthesize_personality_context()

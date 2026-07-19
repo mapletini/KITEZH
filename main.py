@@ -43,6 +43,7 @@ from skills.neuro_affect import NeuroChemicalEngine
 from skills.cognitive_architect import LLMCognitiveBridge
 from skills.display_bridge import DisplayBridge, build_display_payload
 from skills.letta_bridge import build_letta_bridge
+from skills.awareness import format_awareness_block
 try:
     from skills.audio_splicer import BumblebeeSplicer
 except ImportError:
@@ -83,13 +84,14 @@ _SECONDS_PER_WORD_ESTIMATE = 0.24
 
 
 def _cli_awareness_summary(backend: str) -> str:
-    return (
-        "[Operational awareness:\n"
-        "- Interface: CLI\n"
-        f"- Runtime mode: {'remote bridge' if config.REMOTE_ENABLED else 'local backend'}\n"
-        f"- Active backend: {backend}\n"
-        "- Callable tools in this interface: none\n"
-        "- Do not claim access to calculators, converters, browsing, or other tools that are not explicitly provided.]"
+    return format_awareness_block(
+        (
+            "Interface: CLI",
+            f"Runtime mode: {'remote bridge' if config.REMOTE_ENABLED else 'local backend'}",
+            f"Active backend: {backend}",
+            "Callable tools in this interface: none",
+            "Do not claim access to calculators, converters, browsing, or other tools that are not explicitly provided.",
+        )
     )
 
 
