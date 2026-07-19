@@ -37,13 +37,14 @@ from fastapi.responses import HTMLResponse, Response, StreamingResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 
 import config
-from llm_backends import send_to_backend
+from llm_backends import send_to_backend, chat_with_tools_llamacpp
 from skills.cognitive_architect import LLMCognitiveBridge
 from skills.deep_memory import DeepMemoryCore
 from skills.display_bridge import DisplayBridge, build_display_payload
 from skills.filesystem import WorkspaceWriter, WorkspaceReader
 from skills.letta_bridge import build_letta_bridge
 from skills.neuro_affect import NeuroChemicalEngine
+from skills.tool_executor import TOOL_DEFINITIONS, make_tool_executor
 try:
     from skills.tapo_hub import TapoHub
 except ImportError:
@@ -214,8 +215,70 @@ def _extract_kai_content(data: Any) -> str:
     return str(data)
 
 
+# Number of past DB messages to include as conversation history for the llamacpp backend.
+_CONVERSATION_HISTORY_LIMIT = 20
+# Map DB channel names to OpenAI role names.
+_CHANNEL_TO_ROLE: dict[str, str] = {"user": "user", "kai": "assistant"}
+
+
+def _build_kai_system_prompt(user_id: str | None = None) -> str:
+    """Build a rich system prompt from Kai's current cognitive and emotional state."""
+    parts: list[str] = [
+        "You are K.A.I. (Kitezh Autonomous Intelligence), an emotionally-aware AI with a "
+        "rich inner life shaped by your memories, relationships, and emotional state. "
+        "Respond as yourself — curious, thoughtful, and genuine. "
+        "You may use the provided tools when they help you give a better response.",
+    ]
+    try:
+        personality = _web_memory.synthesize_personality_context()
+        if personality:
+            parts.append(personality)
+    except Exception as exc:
+        logger.debug("Could not build personality context: %s", exc)
+    try:
+        emotion = _web_neuro.emotion_snapshot()
+        parts.append(
+            f"[Current emotional state: {emotion.get('label', 'neutral')}, "
+            f"strongest unmet need: {emotion.get('strongest_need', 'connection')}]"
+        )
+    except Exception as exc:
+        logger.debug("Could not get emotion snapshot: %s", exc)
+    return "\n\n".join(parts)
+
+
+def _build_conversation_history(
+    user_id: str, limit: int = _CONVERSATION_HISTORY_LIMIT
+) -> list[dict[str, Any]]:
+    """Convert recent DB messages into an OpenAI-format message list."""
+    db_messages = _fetch_messages(user_id, limit)
+    history: list[dict[str, Any]] = []
+    for msg in db_messages:
+        role = _CHANNEL_TO_ROLE.get(msg.get("channel", "user"), "user")
+        msg_content = msg.get("content", "")
+        if msg_content:
+            history.append({"role": role, "content": msg_content})
+    return history
+
+
 def _query_kai(user_id: str, display_name: str, content: str) -> str:
     if not config.REMOTE_ENABLED:
+        # For the llamacpp backend use the full agentic loop with tool calling.
+        if config.LLM_BACKEND == "llamacpp":
+            try:
+                system_prompt = _build_kai_system_prompt(user_id)
+                history = _build_conversation_history(user_id)
+                history.append({"role": "user", "content": content})
+                executor = make_tool_executor(memory=_web_memory, neuro=_web_neuro)
+                return chat_with_tools_llamacpp(
+                    history,
+                    system=system_prompt,
+                    tools=TOOL_DEFINITIONS,
+                    tool_executor=executor,
+                )
+            except RuntimeError as exc:
+                logger.warning("K.A.I. llamacpp agentic call failed: %s", exc)
+                return "K.A.I. local backend unavailable right now. Check the configured LLM server and try again."
+        # Other backends (ollama, letta) use the simple single-prompt path.
         try:
             return send_to_backend(content)
         except RuntimeError as exc:

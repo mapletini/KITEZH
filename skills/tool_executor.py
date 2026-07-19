@@ -1,0 +1,242 @@
+"""
+skills/tool_executor.py — Tool definitions and execution for K.A.I.'s agentic loop.
+
+Defines the workspace and memory tools that Kai can call during a response,
+and provides a factory that returns an executor bound to live memory/neuro
+instances.
+"""
+
+from __future__ import annotations
+
+import logging
+import time
+from typing import Any, Callable
+
+logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# OpenAI-compatible tool definitions
+# ---------------------------------------------------------------------------
+
+TOOL_DEFINITIONS: list[dict[str, Any]] = [
+    {
+        "type": "function",
+        "function": {
+            "name": "read_workspace_file",
+            "description": (
+                "Read the text content of a file from Kai's workspace sandbox. "
+                "Use this to check notes, code, or other files Kai has saved."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "Relative path within the workspace (e.g. 'notes/todo.txt').",
+                    }
+                },
+                "required": ["path"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "write_workspace_file",
+            "description": (
+                "Write or overwrite a file in Kai's workspace sandbox. "
+                "Use this to save notes, drafts, code, or any persistent content."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "Relative path within the workspace.",
+                    },
+                    "content": {
+                        "type": "string",
+                        "description": "Text content to write to the file.",
+                    },
+                },
+                "required": ["path", "content"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "list_workspace_files",
+            "description": "List files in Kai's workspace sandbox.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "pattern": {
+                        "type": "string",
+                        "description": "Glob pattern to filter files (default: '**/*').",
+                    }
+                },
+                "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "recall_memories",
+            "description": (
+                "Recall Kai's episodic memories ranked by emotional resonance with the "
+                "current mood. Returns recent experiences that feel most salient right now."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "limit": {
+                        "type": "integer",
+                        "description": "Maximum number of memories to return (default: 5).",
+                    }
+                },
+                "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "store_note",
+            "description": (
+                "Save a short note or observation to Kai's workspace for later reference. "
+                "Useful for recording thoughts, reminders, or information."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "content": {
+                        "type": "string",
+                        "description": "The note to save.",
+                    },
+                    "filename": {
+                        "type": "string",
+                        "description": (
+                            "Optional filename inside the notes/ directory "
+                            "(default: auto-generated from timestamp)."
+                        ),
+                    },
+                },
+                "required": ["content"],
+            },
+        },
+    },
+]
+
+
+# ---------------------------------------------------------------------------
+# Tool executor factory
+# ---------------------------------------------------------------------------
+
+
+def make_tool_executor(
+    memory: Any | None = None,
+    neuro: Any | None = None,
+) -> Callable[[str, dict[str, Any]], str]:
+    """
+    Return a tool executor function bound to the given memory and neuro instances.
+
+    Parameters
+    ----------
+    memory:
+        A :class:`~skills.deep_memory.DeepMemoryCore` instance (optional).
+        Required for ``recall_memories``; other tools work without it.
+    neuro:
+        A :class:`~skills.neuro_affect.NeuroChemicalEngine` instance (optional).
+        Used to colour memory recall by current emotional state.
+    """
+    from skills.filesystem import (
+        SandboxViolationError,
+        WorkspaceError,
+        WorkspaceReader,
+        WorkspaceWriter,
+    )
+
+    def execute_tool(name: str, arguments: dict[str, Any]) -> str:
+        logger.info("K.A.I. tool call: %s(%s)", name, arguments)
+
+        # ── read_workspace_file ──────────────────────────────────────────────
+        if name == "read_workspace_file":
+            path = arguments.get("path", "").strip()
+            if not path:
+                return "Error: 'path' argument is required."
+            reader = WorkspaceReader()
+            try:
+                return reader.read_text(path)
+            except SandboxViolationError:
+                return f"Error: path '{path}' escapes the workspace sandbox."
+            except WorkspaceError as exc:
+                return f"Error reading '{path}': {exc}"
+
+        # ── write_workspace_file ─────────────────────────────────────────────
+        if name == "write_workspace_file":
+            path = arguments.get("path", "").strip()
+            content = arguments.get("content", "")
+            if not path:
+                return "Error: 'path' argument is required."
+            writer = WorkspaceWriter()
+            try:
+                writer.write_text(path, content)
+                return f"File '{path}' written successfully."
+            except SandboxViolationError:
+                return f"Error: path '{path}' escapes the workspace sandbox."
+            except WorkspaceError as exc:
+                return f"Error writing '{path}': {exc}"
+
+        # ── list_workspace_files ─────────────────────────────────────────────
+        if name == "list_workspace_files":
+            pattern = arguments.get("pattern", "**/*") or "**/*"
+            reader = WorkspaceReader()
+            try:
+                files = reader.list_files(pattern)
+                if not files:
+                    return "No files found."
+                return "\n".join(str(f) for f in sorted(files))
+            except Exception as exc:
+                return f"Error listing files: {exc}"
+
+        # ── recall_memories ──────────────────────────────────────────────────
+        if name == "recall_memories":
+            if memory is None:
+                return "Memory system unavailable."
+            limit = max(1, min(20, int(arguments.get("limit", 5))))
+            pad = neuro.get_pad_coordinates() if neuro is not None else (0.0, 0.0, 0.0)
+            try:
+                results = memory.search_by_resonance(*pad, limit=limit)
+                if not results:
+                    return "No relevant memories found."
+                lines: list[str] = []
+                for mem in results:
+                    fidelity = float(mem.get("fidelity", 1.0))
+                    tag = f"[{mem['category']} / {mem['complex_label']} / {fidelity:.0%} fidelity]"
+                    lines.append(f"{tag} {mem['content']}")
+                return "\n".join(lines)
+            except Exception as exc:
+                return f"Error recalling memories: {exc}"
+
+        # ── store_note ───────────────────────────────────────────────────────
+        if name == "store_note":
+            content = arguments.get("content", "").strip()
+            if not content:
+                return "Error: 'content' argument is required."
+            raw_filename = (arguments.get("filename") or "").strip()
+            if raw_filename:
+                filename = raw_filename if raw_filename.startswith("notes/") else f"notes/{raw_filename}"
+            else:
+                filename = f"notes/note_{int(time.time())}.txt"
+            writer = WorkspaceWriter()
+            try:
+                writer.write_text(filename, content)
+                return f"Note saved to '{filename}'."
+            except Exception as exc:
+                return f"Error saving note: {exc}"
+
+        return f"Unknown tool: '{name}'."
+
+    return execute_tool

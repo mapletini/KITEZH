@@ -80,12 +80,37 @@ class TestConceptExtraction(unittest.TestCase):
 
 class TestKaiQuery(unittest.TestCase):
     def test_query_kai_uses_local_backend_when_remote_disabled(self) -> None:
-        with patch.object(web_ui.config, "REMOTE_ENABLED", False), patch.object(
-            web_ui, "send_to_backend", return_value="local reply"
-        ) as send_to_backend:
+        # Default LLM_BACKEND is "ollama" — should still use send_to_backend(content).
+        with patch.object(web_ui.config, "REMOTE_ENABLED", False), \
+             patch.object(web_ui.config, "LLM_BACKEND", "ollama"), \
+             patch.object(web_ui, "send_to_backend", return_value="local reply") as send_to_backend:
             result = web_ui._query_kai("user-1", "User", "hello")
         self.assertEqual(result, "local reply")
         send_to_backend.assert_called_once_with("hello")
+
+    def test_query_kai_llamacpp_uses_agentic_path(self) -> None:
+        with patch.object(web_ui.config, "REMOTE_ENABLED", False), \
+             patch.object(web_ui.config, "LLM_BACKEND", "llamacpp"), \
+             patch.object(web_ui, "chat_with_tools_llamacpp", return_value="kai reply") as agentic, \
+             patch.object(web_ui._web_memory, "synthesize_personality_context", return_value=""), \
+             patch.object(web_ui._web_neuro, "emotion_snapshot", return_value={"label": "calm"}):
+            result = web_ui._query_kai("user-2", "User", "hi")
+        self.assertEqual(result, "kai reply")
+        agentic.assert_called_once()
+        # Verify that tools and a system prompt are passed.
+        call_kwargs = agentic.call_args.kwargs
+        self.assertIn("tools", call_kwargs)
+        self.assertIn("system", call_kwargs)
+        self.assertIn("tool_executor", call_kwargs)
+
+    def test_query_kai_llamacpp_returns_fallback_on_runtime_error(self) -> None:
+        with patch.object(web_ui.config, "REMOTE_ENABLED", False), \
+             patch.object(web_ui.config, "LLM_BACKEND", "llamacpp"), \
+             patch.object(web_ui, "chat_with_tools_llamacpp", side_effect=RuntimeError("offline")), \
+             patch.object(web_ui._web_memory, "synthesize_personality_context", return_value=""), \
+             patch.object(web_ui._web_neuro, "emotion_snapshot", return_value={"label": "neutral"}):
+            result = web_ui._query_kai("user-3", "User", "hello")
+        self.assertIn("unavailable", result.lower())
 
 
 class TestSeedBelief(unittest.TestCase):
