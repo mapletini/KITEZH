@@ -306,6 +306,40 @@ _CONVERSATION_HISTORY_LIMIT = 20
 _CHANNEL_TO_ROLE: dict[str, str] = {"user": "user", "kai": "assistant"}
 
 
+def _tool_names() -> list[str]:
+    names: list[str] = []
+    for tool in TOOL_DEFINITIONS:
+        fn = tool.get("function", {})
+        name = fn.get("name")
+        if isinstance(name, str) and name:
+            names.append(name)
+    return names
+
+
+def _awareness_summary_for_prompt() -> str:
+    bridge_mode = "remote bridge" if config.REMOTE_ENABLED else "local backend"
+    tools_active = (not config.REMOTE_ENABLED) and config.LLM_BACKEND == "llamacpp"
+    available_tools = ", ".join(_tool_names()) if tools_active else "none"
+    return (
+        "[Operational awareness:\n"
+        f"- Interface: web chat\n"
+        f"- Runtime mode: {bridge_mode}\n"
+        f"- Local backend setting: {config.LLM_BACKEND}\n"
+        f"- Callable tools available right now: {available_tools}\n"
+        "- Never claim tools outside this exact list; if none are available, say so directly.]"
+    )
+
+
+def _awareness_metadata() -> dict[str, Any]:
+    tools_active = (not config.REMOTE_ENABLED) and config.LLM_BACKEND == "llamacpp"
+    return {
+        "interface": "web_chat",
+        "remote_enabled": config.REMOTE_ENABLED,
+        "local_backend": config.LLM_BACKEND,
+        "tools_available": _tool_names() if tools_active else [],
+    }
+
+
 def _build_kai_system_prompt(user_id: str | None = None) -> str:
     """Build a rich system prompt from Kai's current cognitive and emotional state."""
     parts: list[str] = [
@@ -328,6 +362,7 @@ def _build_kai_system_prompt(user_id: str | None = None) -> str:
         )
     except Exception as exc:
         logger.debug("Could not get emotion snapshot: %s", exc)
+    parts.append(_awareness_summary_for_prompt())
     return "\n\n".join(parts)
 
 
@@ -365,7 +400,12 @@ def _query_kai(user_id: str, display_name: str, content: str) -> str:
                 return "K.A.I. llamacpp backend unavailable right now. Check the configured llama-server and try again."
         # Other backends (ollama, letta) use the simple single-prompt path.
         try:
-            return send_to_backend(content)
+            system_prompt = _build_kai_system_prompt(user_id)
+            return send_to_backend(
+                content,
+                backend=config.LLM_BACKEND,
+                system=system_prompt,
+            )
         except RuntimeError as exc:
             logger.warning("K.A.I. local backend failed: %s", exc)
             return "K.A.I. local backend unavailable right now. Check the configured LLM server and try again."
@@ -377,7 +417,7 @@ def _query_kai(user_id: str, display_name: str, content: str) -> str:
         "content": content,
         "clearance": "guest",
         "is_puppy": False,
-        "metadata": {},
+        "metadata": {"kai_awareness": _awareness_metadata()},
     }
     try:
         response = requests.post(

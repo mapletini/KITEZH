@@ -30,7 +30,7 @@ class TestLlamaCppBackend(unittest.TestCase):
         mocked_post.assert_called_once()
         call_kwargs = mocked_post.call_args.kwargs
         self.assertEqual(call_kwargs["json"]["model"], "nous-hermes-2-mixtral-8x7b-dpo-gguf")
-        self.assertEqual(call_kwargs["json"]["messages"][1]["content"], "test prompt")
+        self.assertEqual(call_kwargs["json"]["messages"][-1]["content"], "test prompt")
 
     def test_send_to_llamacpp_raises_runtime_error_on_connection_failure(self) -> None:
         with patch.object(llm_backends.requests, "post", side_effect=requests.exceptions.ConnectionError("offline")):
@@ -46,6 +46,28 @@ class TestLlamaCppBackend(unittest.TestCase):
             with self.assertRaises(RuntimeError) as captured:
                 llm_backends.send_to_llamacpp("test prompt")
         self.assertIn("returned invalid JSON", str(captured.exception))
+
+    def test_send_to_backend_passes_system_to_ollama(self) -> None:
+        with patch.object(llm_backends, "send_to_ollama", return_value="ok") as send:
+            result = llm_backends.send_to_backend(
+                "prompt",
+                backend="ollama",
+                model="m",
+                system="system context",
+            )
+        self.assertEqual(result, "ok")
+        send.assert_called_once_with("prompt", model="m", system="system context")
+
+    def test_send_to_backend_passes_system_to_letta(self) -> None:
+        with patch.object(llm_backends, "send_to_letta", return_value="ok") as send:
+            result = llm_backends.send_to_backend(
+                "prompt",
+                backend="letta",
+                agent_id="agent-1",
+                system="system context",
+            )
+        self.assertEqual(result, "ok")
+        send.assert_called_once_with("prompt", agent_id="agent-1", system="system context")
 
     def test_main_health_exits_cleanly_when_remote_disabled(self) -> None:
         with patch.object(main.config, "REMOTE_ENABLED", False), patch("builtins.print") as mock_print:
@@ -184,4 +206,3 @@ class TestChatWithToolsLlamacpp(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

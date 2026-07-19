@@ -82,9 +82,21 @@ _MAX_SPOKEN_SEGMENT_SECONDS = 3.5
 _SECONDS_PER_WORD_ESTIMATE = 0.24
 
 
+def _cli_awareness_summary(backend: str) -> str:
+    return (
+        "[Operational awareness:\n"
+        "- Interface: CLI\n"
+        f"- Runtime mode: {'remote bridge' if config.REMOTE_ENABLED else 'local backend'}\n"
+        f"- Active backend: {backend}\n"
+        "- Callable tools in this interface: none\n"
+        "- Do not claim access to calculators, converters, browsing, or other tools that are not explicitly provided.]"
+    )
+
+
 def _build_cli_system_prompt(
     cognitive_bridge: LLMCognitiveBridge,
     neuro: NeuroChemicalEngine,
+    backend: str,
     user_id: str | None = None,
 ) -> str:
     """Build Kai's system prompt from current cognitive and emotional state for CLI use."""
@@ -107,6 +119,7 @@ def _build_cli_system_prompt(
         )
     except Exception as exc:
         logger.debug("Could not get emotion snapshot: %s", exc)
+    parts.append(_cli_awareness_summary(backend))
     return "\n\n".join(parts)
 
 
@@ -463,7 +476,10 @@ def main(argv: list[str] | None = None) -> int:
                         else:
                             try:
                                 system_prompt = _build_cli_system_prompt(
-                                    cognitive_bridge, neuro, user_id=payload.user_id
+                                    cognitive_bridge,
+                                    neuro,
+                                    backend=args.backend,
+                                    user_id=payload.user_id,
                                 )
                                 local_reply = send_to_backend(
                                     payload.content,
