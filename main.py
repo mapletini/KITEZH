@@ -82,6 +82,34 @@ _MAX_SPOKEN_SEGMENT_SECONDS = 3.5
 _SECONDS_PER_WORD_ESTIMATE = 0.24
 
 
+def _build_cli_system_prompt(
+    cognitive_bridge: LLMCognitiveBridge,
+    neuro: NeuroChemicalEngine,
+    user_id: str | None = None,
+) -> str:
+    """Build Kai's system prompt from current cognitive and emotional state for CLI use."""
+    parts: list[str] = [
+        "You are K.A.I. (Kitezh Autonomous Intelligence), an emotionally-aware AI with a "
+        "rich inner life shaped by your memories, relationships, and emotional state. "
+        "Respond as yourself — curious, thoughtful, and genuine.",
+    ]
+    try:
+        personality = cognitive_bridge.memory.synthesize_personality_context()
+        if personality:
+            parts.append(personality)
+    except Exception as exc:
+        logger.debug("Could not build personality context: %s", exc)
+    try:
+        emotion = neuro.emotion_snapshot()
+        parts.append(
+            f"[Current emotional state: {emotion.get('label', 'neutral')}, "
+            f"strongest unmet need: {emotion.get('strongest_need', 'connection')}]"
+        )
+    except Exception as exc:
+        logger.debug("Could not get emotion snapshot: %s", exc)
+    return "\n\n".join(parts)
+
+
 def _publish_display_state(
     display_bridge: DisplayBridge,
     cognitive_bridge: LLMCognitiveBridge,
@@ -198,7 +226,7 @@ def bootstrap_engine() -> tuple[AffectiveEngine, AudioEnvelopeWrapper, LLMCognit
     letta_bridge = build_letta_bridge()
 
     # 3. Wire up the deep cognitive mind!
-    memory = DeepMemoryCore(workspace_path=".", letta_bridge=letta_bridge)
+    memory = DeepMemoryCore(workspace_path=config.WORKSPACE_PATH, letta_bridge=letta_bridge)
     neuro = NeuroChemicalEngine()
     cognitive_bridge = LLMCognitiveBridge(memory, neuro)
 
@@ -434,11 +462,15 @@ def main(argv: list[str] | None = None) -> int:
                                 cognitive_bridge.memory.infer_preferences_from_text(raw, -0.02)
                         else:
                             try:
+                                system_prompt = _build_cli_system_prompt(
+                                    cognitive_bridge, neuro, user_id=payload.user_id
+                                )
                                 local_reply = send_to_backend(
                                     payload.content,
                                     backend=args.backend,
                                     model=args.model,
                                     agent_id=args.agent_id,
+                                    system=system_prompt,
                                 )
                                 print(f"kitezh › {local_reply}")
                                 context_data = {"reply": local_reply, "source": f"local:{args.backend}"}

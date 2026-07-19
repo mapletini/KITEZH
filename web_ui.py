@@ -19,13 +19,17 @@ Or directly::
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import ipaddress
 import json
 import logging
+import os
 import requests
 import re
+import secrets
 import sqlite3
 import time
+import unicodedata
 from contextlib import asynccontextmanager, suppress
 from itertools import combinations
 from pathlib import Path
@@ -37,13 +41,14 @@ from fastapi.responses import HTMLResponse, Response, StreamingResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 
 import config
-from llm_backends import send_to_backend
+from llm_backends import send_to_backend, chat_with_tools_llamacpp
 from skills.cognitive_architect import LLMCognitiveBridge
 from skills.deep_memory import DeepMemoryCore
 from skills.display_bridge import DisplayBridge, build_display_payload
 from skills.filesystem import WorkspaceWriter, WorkspaceReader
 from skills.letta_bridge import build_letta_bridge
 from skills.neuro_affect import NeuroChemicalEngine
+from skills.tool_executor import TOOL_DEFINITIONS, make_tool_executor
 try:
     from skills.tapo_hub import TapoHub
 except ImportError:
@@ -120,7 +125,88 @@ def _init_chat_db() -> None:
         if "channel" not in columns:
             conn.execute("ALTER TABLE messages ADD COLUMN channel TEXT NOT NULL DEFAULT 'user'")
         conn.execute("UPDATE messages SET thread_id = user_id WHERE thread_id = ''")
+
+        # Persistent identity table: maps a normalised name key → stable thread.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS user_identities (
+                name_key      TEXT PRIMARY KEY,
+                thread_id     TEXT NOT NULL UNIQUE,
+                passcode_hash TEXT NOT NULL DEFAULT ''
+            )
+        """)
         conn.commit()
+
+
+# scrypt parameters — N=2**15 provides good GPU resistance for a private service.
+_SCRYPT_N = 2 ** 15
+_SCRYPT_R = 8
+_SCRYPT_P = 1
+_SCRYPT_DKLEN = 32
+
+
+def _hash_passcode(passcode: str) -> str:
+    """Return a storable ``{salt_hex}${hash_hex}`` string using scrypt."""
+    salt = os.urandom(16)
+    dk = hashlib.scrypt(passcode.encode(), salt=salt, n=_SCRYPT_N, r=_SCRYPT_R, p=_SCRYPT_P, dklen=_SCRYPT_DKLEN)
+    return salt.hex() + "$" + dk.hex()
+
+
+def _verify_passcode(passcode: str, stored: str) -> bool:
+    """Return True if *passcode* matches the stored scrypt hash."""
+    try:
+        salt_hex, hash_hex = stored.split("$", 1)
+    except ValueError:
+        return False
+    salt = bytes.fromhex(salt_hex)
+    dk = hashlib.scrypt(passcode.encode(), salt=salt, n=_SCRYPT_N, r=_SCRYPT_R, p=_SCRYPT_P, dklen=_SCRYPT_DKLEN)
+    return secrets.compare_digest(dk.hex(), hash_hex)
+
+
+def _lookup_or_create_identity(
+    display_name: str,
+    passcode: str,
+) -> tuple[str, bool, str]:
+    """Return (thread_id, ok, error_message).
+
+    First visit with a given name creates a new stable thread and stores an
+    optional passcode hash.  Subsequent visits verify the passcode when one
+    was set, or allow free entry when none was set.
+
+    Passcodes are hashed with hashlib.scrypt (salt stored alongside the hash
+    as ``{salt_hex}${hash_hex}``) to protect against brute-force and rainbow
+    table attacks.
+    """
+    name_key = unicodedata.normalize("NFKC", display_name).strip().lower()
+    if not name_key:
+        return "", False, "Handle cannot be empty."
+
+    passcode = passcode or ""
+    with _chat_conn() as conn:
+        row = conn.execute(
+            "SELECT thread_id, passcode_hash FROM user_identities WHERE name_key = ?",
+            (name_key,),
+        ).fetchone()
+
+        if row is None:
+            # New identity — create a stable thread_id with cryptographic entropy.
+            thread_id = "t_" + secrets.token_hex(16)
+            stored_hash = _hash_passcode(passcode) if passcode else ""
+            conn.execute(
+                "INSERT INTO user_identities (name_key, thread_id, passcode_hash) VALUES (?,?,?)",
+                (name_key, thread_id, stored_hash),
+            )
+            conn.commit()
+            return thread_id, True, ""
+
+        thread_id = row["thread_id"]
+        stored_hash = row["passcode_hash"]
+
+        if stored_hash:
+            # Account has a passcode — verify.
+            if not _verify_passcode(passcode, stored_hash):
+                return "", False, "Incorrect passcode."
+
+        return thread_id, True, ""
 
 
 def _save_message(
@@ -214,8 +300,70 @@ def _extract_kai_content(data: Any) -> str:
     return str(data)
 
 
+# Number of past DB messages to include as conversation history for the llamacpp backend.
+_CONVERSATION_HISTORY_LIMIT = 20
+# Map DB channel names to OpenAI role names.
+_CHANNEL_TO_ROLE: dict[str, str] = {"user": "user", "kai": "assistant"}
+
+
+def _build_kai_system_prompt(user_id: str | None = None) -> str:
+    """Build a rich system prompt from Kai's current cognitive and emotional state."""
+    parts: list[str] = [
+        "You are K.A.I. (Kitezh Autonomous Intelligence), an emotionally-aware AI with a "
+        "rich inner life shaped by your memories, relationships, and emotional state. "
+        "Respond as yourself — curious, thoughtful, and genuine. "
+        "You may use the provided tools when they help you give a better response.",
+    ]
+    try:
+        personality = _web_memory.synthesize_personality_context()
+        if personality:
+            parts.append(personality)
+    except Exception as exc:
+        logger.debug("Could not build personality context: %s", exc)
+    try:
+        emotion = _web_neuro.emotion_snapshot()
+        parts.append(
+            f"[Current emotional state: {emotion.get('label', 'neutral')}, "
+            f"strongest unmet need: {emotion.get('strongest_need', 'connection')}]"
+        )
+    except Exception as exc:
+        logger.debug("Could not get emotion snapshot: %s", exc)
+    return "\n\n".join(parts)
+
+
+def _build_conversation_history(
+    user_id: str, limit: int = _CONVERSATION_HISTORY_LIMIT
+) -> list[dict[str, Any]]:
+    """Convert recent DB messages into an OpenAI-format message list."""
+    db_messages = _fetch_messages(user_id, limit)
+    history: list[dict[str, Any]] = []
+    for msg in db_messages:
+        role = _CHANNEL_TO_ROLE.get(msg.get("channel", "user"), "user")
+        msg_content = msg.get("content", "")
+        if msg_content:
+            history.append({"role": role, "content": msg_content})
+    return history
+
+
 def _query_kai(user_id: str, display_name: str, content: str) -> str:
     if not config.REMOTE_ENABLED:
+        # For the llamacpp backend use the full agentic loop with tool calling.
+        if config.LLM_BACKEND == "llamacpp":
+            try:
+                system_prompt = _build_kai_system_prompt(user_id)
+                history = _build_conversation_history(user_id)
+                history.append({"role": "user", "content": content})
+                executor = make_tool_executor(memory=_web_memory, neuro=_web_neuro)
+                return chat_with_tools_llamacpp(
+                    history,
+                    system=system_prompt,
+                    tools=TOOL_DEFINITIONS,
+                    tool_executor=executor,
+                )
+            except RuntimeError as exc:
+                logger.warning("K.A.I. llamacpp agentic call failed: %s", exc)
+                return "K.A.I. llamacpp backend unavailable right now. Check the configured llama-server and try again."
+        # Other backends (ollama, letta) use the simple single-prompt path.
         try:
             return send_to_backend(content)
         except RuntimeError as exc:
@@ -512,6 +660,24 @@ async def chat_log(user_id: str, limit: int = 100) -> dict[str, Any]:
     return {"messages": _fetch_messages(user_id, limit)}
 
 
+@app.post("/api/auth/join")
+async def auth_join(body: dict[str, str] = Body(...)) -> dict[str, Any]:
+    """Resolve or create a persistent identity for a display name.
+
+    Body: ``{"display_name": "...", "passcode": "..."}``
+
+    Returns ``{"thread_id": "..."}`` on success, or HTTP 401/422 on error.
+    """
+    display_name = (body.get("display_name") or "").strip()
+    passcode = body.get("passcode") or ""
+    if not display_name:
+        raise HTTPException(status_code=422, detail="Handle cannot be empty.")
+    thread_id, ok, error = _lookup_or_create_identity(display_name, passcode)
+    if not ok:
+        raise HTTPException(status_code=401, detail=error)
+    return {"thread_id": thread_id}
+
+
 @app.get("/api/chat/users")
 async def online_users() -> dict[str, Any]:
     """Return the list of currently connected users."""
@@ -585,19 +751,29 @@ fetch('/api/display/state').then(r=>r.json()).then(applyState);
 
 
 @app.websocket("/ws/{user_id}")
-async def websocket_endpoint(ws: WebSocket, user_id: str, display_name: str = "Anonymous") -> None:
+async def websocket_endpoint(
+    ws: WebSocket,
+    user_id: str,
+    display_name: str = "Anonymous",
+    thread_id: str = "",
+) -> None:
     """
     Real-time chat endpoint.  Connect with::
 
-        ws://<host>:<port>/ws/<user_id>?display_name=<name>
+        ws://<host>:<port>/ws/<user_id>?display_name=<name>&thread_id=<tid>
+
+    ``thread_id`` is the stable persistent thread returned by ``/api/auth/join``.
+    When omitted the session-scoped ``user_id`` is used as the thread (legacy
+    behaviour preserved for backwards compatibility).
 
     On connect the client receives a ``history`` frame containing the last 50
-    messages from its own private thread, then live ``message`` frames.
+    messages from its persistent thread, then live ``message`` frames.
     """
+    effective_thread = thread_id if thread_id else user_id
     await manager.connect(user_id, display_name, ws)
 
     # Send private history to this user only.
-    await ws.send_text(json.dumps({"type": "history", "messages": _fetch_messages(user_id, 50)}))
+    await ws.send_text(json.dumps({"type": "history", "messages": _fetch_messages(effective_thread, 50)}))
 
     try:
         while True:
@@ -607,7 +783,7 @@ async def websocket_endpoint(ws: WebSocket, user_id: str, display_name: str = "A
             if not content:
                 continue
             timestamp = int(time.time())
-            _save_message(user_id, user_id, display_name, content, channel="user")
+            _save_message(effective_thread, user_id, display_name, content, channel="user")
             await manager.send_to(user_id, {
                 "type": "message",
                 "user_id": user_id,
@@ -616,9 +792,9 @@ async def websocket_endpoint(ws: WebSocket, user_id: str, display_name: str = "A
                 "timestamp": timestamp,
             })
 
-            kai_reply = _query_kai(user_id, display_name, content)
+            kai_reply = _query_kai(effective_thread, display_name, content)
             kai_timestamp = int(time.time())
-            _save_message(user_id, "kai", "K.A.I.", kai_reply, channel="kai")
+            _save_message(effective_thread, "kai", "K.A.I.", kai_reply, channel="kai")
             await manager.send_to(user_id, {
                 "type": "message",
                 "user_id": "kai",
@@ -626,7 +802,7 @@ async def websocket_endpoint(ws: WebSocket, user_id: str, display_name: str = "A
                 "content": kai_reply,
                 "timestamp": kai_timestamp,
             })
-            _process_web_cognitive_loop(user_id, display_name, content, kai_reply)
+            _process_web_cognitive_loop(effective_thread, display_name, content, kai_reply)
     except WebSocketDisconnect:
         manager.disconnect(user_id)
 

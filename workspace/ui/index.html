@@ -345,8 +345,44 @@
       background: rgba(0,255,153,0.08);
       box-shadow: 0 0 12px var(--accent);
     }
+    #join-btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
 
     #join-error { color: var(--danger); font-size: 11px; display: none; }
+
+    /* ── Mobile responsive ────────────────────────────────────────── */
+    @media (max-width: 600px) {
+      html, body { font-size: 14px; }
+
+      #app {
+        grid-template-columns: 1fr;
+        grid-template-areas:
+          "header"
+          "chat"
+          "footer";
+      }
+
+      #sidebar { display: none; }
+
+      #header { padding: 8px 12px; gap: 8px; }
+      #header .tagline { display: none; }
+
+      #log { padding: 10px 12px; }
+
+      #input-bar { padding: 8px 12px; }
+      #msg-input { font-size: 16px; } /* prevents iOS auto-zoom */
+      #join-box input { font-size: 16px; } /* prevents iOS auto-zoom on name/passcode */
+
+      #footer { padding: 4px 12px; gap: 10px; flex-wrap: wrap; }
+
+      #join-box {
+        min-width: unset;
+        width: calc(100vw - 40px);
+        padding: 24px 20px;
+      }
+    }
   </style>
 </head>
 <body>
@@ -355,8 +391,9 @@
 <div id="join-overlay">
   <div id="join-box">
     <h2>K.A.I.</h2>
-    <p>Kitezh Autonomous Intelligence<br>Enter your handle to connect to the live feed.</p>
+    <p>Kitezh Autonomous Intelligence<br>Enter your handle to connect. Your chat history is saved.</p>
     <input id="name-input" type="text" placeholder="display_name" maxlength="32" autocomplete="off" />
+    <input id="passcode-input" type="password" placeholder="passcode (optional)" maxlength="64" autocomplete="current-password" />
     <div id="join-error">Handle cannot be empty.</div>
     <button id="join-btn">// CONNECT</button>
   </div>
@@ -406,20 +443,21 @@
   let emotionTimer = null;
 
   /* ── DOM refs ──────────────────────────────────────────────── */
-  const joinOverlay = document.getElementById("join-overlay");
-  const nameInput   = document.getElementById("name-input");
-  const joinBtn     = document.getElementById("join-btn");
-  const joinError   = document.getElementById("join-error");
-  const log         = document.getElementById("log");
-  const msgInput    = document.getElementById("msg-input");
-  const sendBtn     = document.getElementById("send-btn");
-  const statusDot   = document.getElementById("status-dot");
-  const statusLabel = document.getElementById("status-label");
-  const emotionLabel = document.getElementById("emotion-label");
-  const emotionFill  = document.getElementById("emotion-fill");
-  const userList    = document.getElementById("user-list");
-  const footerUser  = document.getElementById("footer-user");
-  const footerCount = document.getElementById("footer-count");
+  const joinOverlay   = document.getElementById("join-overlay");
+  const nameInput     = document.getElementById("name-input");
+  const passcodeInput = document.getElementById("passcode-input");
+  const joinBtn       = document.getElementById("join-btn");
+  const joinError     = document.getElementById("join-error");
+  const log           = document.getElementById("log");
+  const msgInput      = document.getElementById("msg-input");
+  const sendBtn       = document.getElementById("send-btn");
+  const statusDot     = document.getElementById("status-dot");
+  const statusLabel   = document.getElementById("status-label");
+  const emotionLabel  = document.getElementById("emotion-label");
+  const emotionFill   = document.getElementById("emotion-fill");
+  const userList      = document.getElementById("user-list");
+  const footerUser    = document.getElementById("footer-user");
+  const footerCount   = document.getElementById("footer-count");
 
   /* ── Utilities ─────────────────────────────────────────────── */
   function generateUserId() {
@@ -496,12 +534,14 @@
   }
 
   /* ── WebSocket ─────────────────────────────────────────────── */
-  function connect(displayName) {
+  function connect(displayName, threadId) {
     myId   = generateUserId();
     myName = displayName;
 
     const proto = location.protocol === "https:" ? "wss" : "ws";
-    const url   = `${proto}://${location.host}/ws/${myId}?display_name=${encodeURIComponent(displayName)}`;
+    const url   = `${proto}://${location.host}/ws/${myId}` +
+                  `?display_name=${encodeURIComponent(displayName)}` +
+                  `&thread_id=${encodeURIComponent(threadId)}`;
 
     ws = new WebSocket(url);
 
@@ -561,15 +601,49 @@
   });
 
   /* ── Join ──────────────────────────────────────────────────── */
-  function attemptJoin() {
+  async function attemptJoin() {
     const name = nameInput.value.trim();
-    if (!name) { joinError.style.display = "block"; return; }
+    if (!name) {
+      joinError.textContent = "Handle cannot be empty.";
+      joinError.style.display = "block";
+      return;
+    }
     joinError.style.display = "none";
-    connect(name);
+    joinBtn.disabled = true;
+    joinBtn.textContent = "// CONNECTING…";
+
+    try {
+      const res = await fetch("/api/auth/join", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ display_name: name, passcode: passcodeInput.value }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        joinError.textContent = data.detail || "Connection refused.";
+        joinError.style.display = "block";
+        return;
+      }
+      const { thread_id } = await res.json();
+      connect(name, thread_id);
+    } catch (err) {
+      joinError.textContent = "Could not reach server. Try again.";
+      joinError.style.display = "block";
+    } finally {
+      joinBtn.disabled = false;
+      joinBtn.textContent = "// CONNECT";
+    }
   }
 
   joinBtn.addEventListener("click", attemptJoin);
-  nameInput.addEventListener("keydown", (e) => { if (e.key === "Enter") attemptJoin(); });
+  /* Enter in name field moves focus to passcode */
+  nameInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") { e.preventDefault(); passcodeInput.focus(); }
+  });
+  /* Enter in passcode submits */
+  passcodeInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") { e.preventDefault(); attemptJoin(); }
+  });
   nameInput.focus();
 </script>
 </body>

@@ -89,5 +89,99 @@ class TestLlamaCppBackend(unittest.TestCase):
         self.assertEqual(exit_code, 1)
 
 
+class TestChatWithToolsLlamacpp(unittest.TestCase):
+    """Tests for the agentic tool-calling loop."""
+
+    def _make_response(self, content: str, tool_calls: list | None = None) -> Mock:
+        finish_reason = "tool_calls" if tool_calls else "stop"
+        message: dict = {"role": "assistant", "content": content}
+        if tool_calls:
+            message["tool_calls"] = tool_calls
+        fake = Mock()
+        fake.raise_for_status.return_value = None
+        fake.json.return_value = {
+            "choices": [{"message": message, "finish_reason": finish_reason}]
+        }
+        return fake
+
+    def test_plain_text_response_returned_directly(self) -> None:
+        fake = self._make_response("Hello there!")
+        with patch.object(llm_backends.requests, "post", return_value=fake):
+            result = llm_backends.chat_with_tools_llamacpp([{"role": "user", "content": "hi"}])
+        self.assertEqual(result, "Hello there!")
+
+    def test_system_prompt_prepended_to_messages(self) -> None:
+        fake = self._make_response("ok")
+        with patch.object(llm_backends.requests, "post", return_value=fake) as mocked:
+            llm_backends.chat_with_tools_llamacpp(
+                [{"role": "user", "content": "hi"}],
+                system="You are Kai.",
+            )
+        sent_messages = mocked.call_args.kwargs["json"]["messages"]
+        self.assertEqual(sent_messages[0]["role"], "system")
+        self.assertEqual(sent_messages[0]["content"], "You are Kai.")
+
+    def test_tool_definitions_included_in_request(self) -> None:
+        fake = self._make_response("ok")
+        tools = [{"type": "function", "function": {"name": "my_tool", "description": "x", "parameters": {}}}]
+        with patch.object(llm_backends.requests, "post", return_value=fake) as mocked:
+            llm_backends.chat_with_tools_llamacpp(
+                [{"role": "user", "content": "hi"}],
+                tools=tools,
+            )
+        sent_payload = mocked.call_args.kwargs["json"]
+        self.assertIn("tools", sent_payload)
+        self.assertEqual(sent_payload["tool_choice"], "auto")
+
+    def test_tool_call_executed_and_result_fed_back(self) -> None:
+        tool_call_response = self._make_response(
+            "",
+            tool_calls=[{
+                "id": "call_1",
+                "function": {"name": "my_tool", "arguments": '{"x": 1}'},
+            }],
+        )
+        final_response = self._make_response("Done!")
+
+        executor = Mock(return_value="tool output")
+        with patch.object(llm_backends.requests, "post", side_effect=[tool_call_response, final_response]):
+            result = llm_backends.chat_with_tools_llamacpp(
+                [{"role": "user", "content": "use the tool"}],
+                tool_executor=executor,
+            )
+        self.assertEqual(result, "Done!")
+        executor.assert_called_once_with("my_tool", {"x": 1})
+
+    def test_no_executor_stops_on_tool_call(self) -> None:
+        tool_call_response = self._make_response(
+            "partial",
+            tool_calls=[{"id": "c", "function": {"name": "t", "arguments": "{}"}}],
+        )
+        with patch.object(llm_backends.requests, "post", return_value=tool_call_response):
+            result = llm_backends.chat_with_tools_llamacpp(
+                [{"role": "user", "content": "hi"}],
+                tool_executor=None,
+            )
+        # Should return partial content (or fallback string) without crashing.
+        self.assertIsInstance(result, str)
+
+    def test_connection_error_raises_runtime_error(self) -> None:
+        with patch.object(
+            llm_backends.requests, "post", side_effect=requests.exceptions.ConnectionError("down")
+        ):
+            with self.assertRaises(RuntimeError) as ctx:
+                llm_backends.chat_with_tools_llamacpp([{"role": "user", "content": "hi"}])
+        self.assertIn("Cannot connect", str(ctx.exception))
+
+    def test_empty_choices_returns_raw_data(self) -> None:
+        fake = Mock()
+        fake.raise_for_status.return_value = None
+        fake.json.return_value = {"choices": []}
+        with patch.object(llm_backends.requests, "post", return_value=fake):
+            result = llm_backends.chat_with_tools_llamacpp([{"role": "user", "content": "hi"}])
+        self.assertIsInstance(result, str)
+
+
 if __name__ == "__main__":
     unittest.main()
+
