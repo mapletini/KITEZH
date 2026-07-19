@@ -226,7 +226,7 @@ def bootstrap_engine() -> tuple[AffectiveEngine, AudioEnvelopeWrapper, LLMCognit
     letta_bridge = build_letta_bridge()
 
     # 3. Wire up the deep cognitive mind!
-    memory = DeepMemoryCore(workspace_path=".", letta_bridge=letta_bridge)
+    memory = DeepMemoryCore(workspace_path=config.WORKSPACE_PATH, letta_bridge=letta_bridge)
     neuro = NeuroChemicalEngine()
     cognitive_bridge = LLMCognitiveBridge(memory, neuro)
 
