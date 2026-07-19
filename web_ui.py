@@ -277,7 +277,7 @@ def _query_kai(user_id: str, display_name: str, content: str) -> str:
                 )
             except RuntimeError as exc:
                 logger.warning("K.A.I. llamacpp agentic call failed: %s", exc)
-                return "K.A.I. local backend unavailable right now. Check the configured LLM server and try again."
+                return "K.A.I. llamacpp backend unavailable right now. Check the configured llama-server and try again."
         # Other backends (ollama, letta) use the simple single-prompt path.
         try:
             return send_to_backend(content)

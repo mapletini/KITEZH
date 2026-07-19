@@ -214,7 +214,9 @@ def make_tool_executor(
                 lines: list[str] = []
                 for mem in results:
                     fidelity = float(mem.get("fidelity", 1.0))
-                    tag = f"[{mem['category']} / {mem['complex_label']} / {fidelity:.0%} fidelity]"
+                    category = mem.get("category", "memory")
+                    label = mem.get("complex_label", "unknown")
+                    tag = f"[{category} / {label} / {fidelity:.0%} fidelity]"
                     lines.append(f"{tag} {mem['content']}")
                 return "\n".join(lines)
             except Exception as exc:
@@ -229,7 +231,7 @@ def make_tool_executor(
             if raw_filename:
                 filename = raw_filename if raw_filename.startswith("notes/") else f"notes/{raw_filename}"
             else:
-                filename = f"notes/note_{int(time.time())}.txt"
+                filename = f"notes/note_{time.time_ns()}.txt"
             writer = WorkspaceWriter()
             try:
                 writer.write_text(filename, content)

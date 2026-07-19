@@ -195,6 +195,8 @@ def chat_with_tools_llamacpp(
         len(tools) if tools else 0,
     )
 
+    # The loop runs max_tool_iterations rounds of tool calls, then one final
+    # pass to collect the model's text response after the last tool results.
     for iteration in range(max_tool_iterations + 1):
         try:
             resp = requests.post(url, json=payload, timeout=120)
@@ -224,8 +226,8 @@ def chat_with_tools_llamacpp(
         if not tool_calls or finish_reason != "tool_calls":
             return message.get("content", "") or str(data)
 
-        # Tool calls received but no executor or iteration cap hit
-        if tool_executor is None or iteration >= max_tool_iterations:
+        # Tool calls received but no executor, or we have used all allowed rounds
+        if tool_executor is None or iteration == max_tool_iterations:
             logger.warning(
                 "Tool calls received but %s; returning partial response.",
                 "no executor provided" if tool_executor is None else "max iterations reached",
