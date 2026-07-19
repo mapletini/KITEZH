@@ -318,8 +318,7 @@ def _tool_names() -> list[str]:
 
 
 def _active_tool_names() -> list[str]:
-    # Only the local llamacpp path uses the agentic tool loop; remote mode and
-    # other backends are plain text generation without callable tool execution.
+    # Local tools are currently available only in the local llamacpp agentic path.
     if config.REMOTE_ENABLED or config.LLM_BACKEND != "llamacpp":
         return []
     return _tool_names()
@@ -349,7 +348,11 @@ def _awareness_metadata() -> dict[str, Any]:
     }
 
 
-def _build_kai_system_prompt(user_id: str | None = None) -> str:
+def _build_kai_system_prompt(
+    user_id: str | None = None,
+    *,
+    include_awareness: bool = True,
+) -> str:
     """Build a rich system prompt from Kai's current cognitive and emotional state."""
     parts: list[str] = [
         "You are K.A.I. (Kitezh Autonomous Intelligence), an emotionally-aware AI with a "
@@ -372,7 +375,8 @@ def _build_kai_system_prompt(user_id: str | None = None) -> str:
         )
     except Exception as exc:
         logger.debug("Could not get emotion snapshot: %s", exc)
-    parts.append(_awareness_summary_for_prompt())
+    if include_awareness:
+        parts.append(_awareness_summary_for_prompt())
     return "\n\n".join(parts)
 
 

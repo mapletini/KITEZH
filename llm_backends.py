@@ -63,6 +63,8 @@ def send_to_letta(
         )
 
     url = f"{config.LETTA_BASE_URL}/v1/agents/{target_agent}/messages"
+    # Letta accepts OpenAI-style role/content messages, so system context is
+    # included as a system-role message before the user message.
     messages: list[dict[str, Any]] = []
     if system:
         messages.append({"role": "system", "content": system})

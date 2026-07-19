@@ -90,7 +90,7 @@ def _cli_awareness_summary(backend: str) -> str:
             f"Runtime mode: {'remote bridge' if config.REMOTE_ENABLED else 'local backend'}",
             f"Active backend: {backend}",
             "Callable tools in this interface: none",
-            "Do not claim access to calculators, converters, browsing, or other tools that are not explicitly provided.",
+            "Do not claim access to any tools beyond what is explicitly listed as available.",
         )
     )
 
