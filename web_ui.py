@@ -49,7 +49,7 @@ from skills.filesystem import WorkspaceWriter, WorkspaceReader
 from skills.letta_bridge import build_letta_bridge
 from skills.neuro_affect import NeuroChemicalEngine
 from skills.tool_executor import TOOL_DEFINITIONS, make_tool_executor
-from skills.awareness import format_awareness_block
+from skills.awareness import build_runtime_awareness, format_runtime_awareness_block
 try:
     from skills.tapo_hub import TapoHub
 except ImportError:
@@ -324,28 +324,45 @@ def _active_tool_names() -> list[str]:
     return _tool_names()
 
 
-def _awareness_summary_for_prompt() -> str:
-    bridge_mode = "remote bridge" if config.REMOTE_ENABLED else "local backend"
-    active_tools = _active_tool_names()
-    available_tools = ", ".join(active_tools) if active_tools else "none"
-    return format_awareness_block(
-        (
-            "Interface: web chat",
-            f"Runtime mode: {bridge_mode}",
-            f"Local backend setting: {config.LLM_BACKEND}",
-            f"Callable tools available right now: {available_tools}",
-            "Never state that you can access or use tools outside this exact list; if none are available, say so directly.",
-        )
+def _camera_summary() -> dict[str, Any]:
+    if _tapo_hub is None:
+        return {
+            "configured": False,
+            "subnet_configured": bool(config.CAMERA_SUBNET),
+            "wakeword_model_configured": bool(config.WAKEWORD_MODEL),
+            "camera_count": 0,
+            "wakeword_listener_count": 0,
+            "available": False,
+        }
+    return _tapo_hub.status()
+
+
+def _runtime_awareness() -> Any:
+    letta_available = bool(_letta_bridge and _letta_bridge.is_available())
+    letta_role = "memory augmentation" if letta_available else ("configured but offline" if config.LETTA_ENABLED else "disabled")
+    display_state = _display_bridge.latest()
+    return build_runtime_awareness(
+        interface="web chat",
+        runtime_mode="remote bridge" if config.REMOTE_ENABLED else "local backend",
+        local_backend=config.LLM_BACKEND,
+        response_path="remote /api/ai/context" if config.REMOTE_ENABLED else f"local:{config.LLM_BACKEND}",
+        active_tools=_active_tool_names(),
+        remote_enabled=config.REMOTE_ENABLED,
+        letta_enabled=config.LETTA_ENABLED,
+        letta_available=letta_available,
+        letta_role=letta_role,
+        display_mode=str(display_state.get("mode", "idle")),
+        display_available=True,
+        camera_summary=_camera_summary(),
     )
 
 
+def _awareness_summary_for_prompt() -> str:
+    return format_runtime_awareness_block(_runtime_awareness())
+
+
 def _awareness_metadata() -> dict[str, Any]:
-    return {
-        "interface": "web_chat",
-        "remote_enabled": config.REMOTE_ENABLED,
-        "local_backend": config.LLM_BACKEND,
-        "tools_available": _active_tool_names(),
-    }
+    return _runtime_awareness().as_metadata()
 
 
 def _build_kai_system_prompt(
@@ -358,11 +375,11 @@ def _build_kai_system_prompt(
         "You are K.A.I. (Kitezh Autonomous Intelligence), an emotionally-aware AI with a "
         "rich inner life shaped by your memories, relationships, and emotional state. "
         "Respond as yourself — curious, thoughtful, and genuine. "
-        "You may use the provided tools when they help you give a better response. "
-        "Never claim you can access tools that are not explicitly available in this runtime.",
+        "Tell the truth about your current abilities before trying to be helpful. "
+        "Only claim an action is possible when it is explicitly available in the runtime awareness block.",
     ]
     try:
-        personality = _web_memory.synthesize_personality_context()
+        personality = _web_memory.synthesize_personality_context(exclude_capability_claims=True)
         if personality:
             parts.append(personality)
     except Exception as exc:
@@ -402,7 +419,13 @@ def _query_kai(user_id: str, display_name: str, content: str) -> str:
                 system_prompt = _build_kai_system_prompt(user_id)
                 history = _build_conversation_history(user_id)
                 history.append({"role": "user", "content": content})
-                executor = make_tool_executor(memory=_web_memory, neuro=_web_neuro)
+                executor = make_tool_executor(
+                    memory=_web_memory,
+                    neuro=_web_neuro,
+                    awareness_provider=_awareness_metadata,
+                    tapo_hub=_tapo_hub,
+                    display_bridge=_display_bridge,
+                )
                 return chat_with_tools_llamacpp(
                     history,
                     system=system_prompt,

@@ -307,6 +307,11 @@ class TestDeepMemoryCore(unittest.TestCase):
         self.assertIsInstance(ctx, str)
         self.assertGreater(len(ctx), 0)
 
+    def test_synthesize_can_exclude_technical_capability_claims(self) -> None:
+        self.mem.archive_episode("chat", "I can use tools to edit the repository.", p=0.1, a=0.2, d=0.8)
+        ctx = self.mem.synthesize_personality_context(exclude_capability_claims=True)
+        self.assertNotIn("I can use tools to edit the repository.", ctx)
+
     # ------------------------------------------------------------------
     # Core beliefs
     # ------------------------------------------------------------------

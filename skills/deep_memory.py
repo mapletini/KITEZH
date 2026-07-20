@@ -47,6 +47,12 @@ MIN_FIDELITY: float = 0.10
 # Number of leading characters used to deduplicate Letta results against local results
 _LETTA_DEDUP_PREFIX_LEN: int = 100
 _PREFERENCE_TOKEN_RE = re.compile(r"[A-Za-z][A-Za-z0-9_-]{3,}")
+_TECHNICAL_CAPABILITY_CLAIM_RE = re.compile(
+    r"\b(?:i|kai)\s+(?:can|can't|cannot|am able to|have access to|can access|can use)\b"
+    r".{0,120}\b(?:tool|tools|file|files|workspace|terminal|shell|api|apis|camera|cameras|"
+    r"browser|code|repository|repo|git|commit|push|deploy|deployment|server|memory)\b",
+    re.IGNORECASE,
+)
 _COMMON_PREFERENCE_STOPWORDS = {
     "the", "and", "with", "that", "this", "from", "have", "your", "you", "them",
     "they", "there", "what", "when", "where", "would", "could", "should", "about",
@@ -576,7 +582,7 @@ class DeepMemoryCore:
     # Personality Synthesis
     # ---------------------------------------------------------------------------
 
-    def synthesize_personality_context(self) -> str:
+    def synthesize_personality_context(self, *, exclude_capability_claims: bool = False) -> str:
         """
         Builds a structured personality context from Kai's entire memory state.
 
@@ -615,6 +621,9 @@ class DeepMemoryCore:
         if episodic_rows:
             lines.append("\n[Episodic Memory — Emotional History]")
             for row in episodic_rows:
+                content = str(row["content"])
+                if exclude_capability_claims and _TECHNICAL_CAPABILITY_CLAIM_RE.search(content):
+                    continue
                 fidelity = row["fidelity"] if "fidelity" in row.keys() else 1.0
                 distortion = row["distortion_score"] if "distortion_score" in row.keys() else 0.0
                 label = row["complex_label"]
@@ -622,7 +631,7 @@ class DeepMemoryCore:
                 if distortion > 0.1:
                     tag += f", emotionally recolored: {label}"
                 tag += "]"
-                lines.append(f"  ~ [{row['event_category']}] {row['content']} {tag}")
+                lines.append(f"  ~ [{row['event_category']}] {content} {tag}")
 
         human_state = self.summarize_human_state()
         if human_state:
