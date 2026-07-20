@@ -57,10 +57,13 @@ _CAPABILITY_OBJECT_RE = (
     r"(?:tool|tools|file|files|workspace|terminal|shell|api|apis|camera|cameras|"
     r"browser|code|repository|repo|git|deployment|server|memory)"
 )
+_CAPABILITY_GAP_RE = r"(?:\s+\S+){0,12}\s+"
 _TECHNICAL_CAPABILITY_CLAIM_RE = re.compile(
     rf"""
+    # Match first-person technical ability claims like
+    # "I can edit files", "Kai has access to the API", etc.
     \b{_CAPABILITY_SUBJECT_RE}\s+{_CAPABILITY_VERB_RE}\b
-    .{{0,80}}
+    {_CAPABILITY_GAP_RE}
     \b{_CAPABILITY_OBJECT_RE}\b
     """,
     re.IGNORECASE | re.VERBOSE,

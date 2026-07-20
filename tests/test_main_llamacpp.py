@@ -30,7 +30,8 @@ class TestLlamaCppBackend(unittest.TestCase):
         mocked_post.assert_called_once()
         call_kwargs = mocked_post.call_args.kwargs
         self.assertEqual(call_kwargs["json"]["model"], "nous-hermes-2-mixtral-8x7b-dpo-gguf")
-        self.assertEqual(call_kwargs["json"]["messages"][-1]["content"], "test prompt")
+        self.assertEqual(len(call_kwargs["json"]["messages"]), 1)
+        self.assertEqual(call_kwargs["json"]["messages"][0]["content"], "test prompt")
 
     def test_send_to_llamacpp_raises_runtime_error_on_connection_failure(self) -> None:
         with patch.object(llm_backends.requests, "post", side_effect=requests.exceptions.ConnectionError("offline")):

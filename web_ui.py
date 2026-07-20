@@ -337,9 +337,17 @@ def _camera_summary() -> dict[str, Any]:
     return _tapo_hub.status()
 
 
+def _letta_role() -> str:
+    if not config.LETTA_ENABLED:
+        return "disabled"
+    if _letta_bridge and _letta_bridge.is_available():
+        return "memory augmentation"
+    return "configured but offline"
+
+
 def _runtime_awareness() -> Any:
-    letta_available = bool(_letta_bridge and _letta_bridge.is_available())
-    letta_role = "memory augmentation" if letta_available else ("configured but offline" if config.LETTA_ENABLED else "disabled")
+    letta_role = _letta_role()
+    letta_available = letta_role == "memory augmentation"
     display_state = _display_bridge.latest()
     return build_runtime_awareness(
         interface="web chat",
