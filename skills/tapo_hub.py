@@ -140,6 +140,21 @@ class TapoHub:
                 return list(self._cameras)
         return self._discover_and_refresh()
 
+    def status(self) -> dict[str, object]:
+        """Return a compact health/configuration summary for awareness surfaces."""
+        with self._lock:
+            camera_count = len(self._cameras)
+            listener_count = len(self._listeners)
+        configured = bool(config.TAPO_USER and config.TAPO_PASSWORD)
+        return {
+            "configured": configured,
+            "subnet_configured": bool(config.CAMERA_SUBNET),
+            "wakeword_model_configured": bool(config.WAKEWORD_MODEL),
+            "camera_count": camera_count,
+            "wakeword_listener_count": listener_count,
+            "available": camera_count > 0,
+        }
+
     # ------------------------------------------------------------------
     # Internal
     # ------------------------------------------------------------------

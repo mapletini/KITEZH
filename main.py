@@ -43,6 +43,7 @@ from skills.neuro_affect import NeuroChemicalEngine
 from skills.cognitive_architect import LLMCognitiveBridge
 from skills.display_bridge import DisplayBridge, build_display_payload
 from skills.letta_bridge import build_letta_bridge
+from skills.awareness import build_runtime_awareness, format_runtime_awareness_block
 try:
     from skills.audio_splicer import BumblebeeSplicer
 except ImportError:
@@ -82,19 +83,46 @@ _MAX_SPOKEN_SEGMENT_SECONDS = 3.5
 _SECONDS_PER_WORD_ESTIMATE = 0.24
 
 
+def _cli_awareness_summary(backend: str) -> str:
+    awareness = build_runtime_awareness(
+        interface="CLI",
+        runtime_mode="remote bridge" if config.REMOTE_ENABLED else "local backend",
+        local_backend=backend,
+        response_path="remote /api/ai/context" if config.REMOTE_ENABLED else f"local:{backend}",
+        active_tools=(),
+        remote_enabled=config.REMOTE_ENABLED,
+        letta_enabled=config.LETTA_ENABLED,
+        letta_available=False,
+        letta_role="memory augmentation" if config.LETTA_ENABLED else "disabled",
+        display_mode="idle",
+        display_available=True,
+        camera_summary={
+            "configured": bool(config.TAPO_USER and config.TAPO_PASSWORD),
+            "subnet_configured": bool(config.CAMERA_SUBNET),
+            "wakeword_model_configured": bool(config.WAKEWORD_MODEL),
+            "camera_count": 0,
+            "wakeword_listener_count": 0,
+            "available": False,
+        },
+    )
+    return format_runtime_awareness_block(awareness)
+
+
 def _build_cli_system_prompt(
     cognitive_bridge: LLMCognitiveBridge,
     neuro: NeuroChemicalEngine,
+    backend: str,
     user_id: str | None = None,
 ) -> str:
     """Build Kai's system prompt from current cognitive and emotional state for CLI use."""
     parts: list[str] = [
         "You are K.A.I. (Kitezh Autonomous Intelligence), an emotionally-aware AI with a "
         "rich inner life shaped by your memories, relationships, and emotional state. "
-        "Respond as yourself — curious, thoughtful, and genuine.",
+        "Respond as yourself — curious, thoughtful, and genuine. "
+        "Tell the truth about your current abilities before trying to be helpful.",
     ]
     try:
-        personality = cognitive_bridge.memory.synthesize_personality_context()
+        personality = cognitive_bridge.memory.synthesize_personality_context(exclude_capability_claims=True)
         if personality:
             parts.append(personality)
     except Exception as exc:
@@ -107,6 +135,7 @@ def _build_cli_system_prompt(
         )
     except Exception as exc:
         logger.debug("Could not get emotion snapshot: %s", exc)
+    parts.append(_cli_awareness_summary(backend))
     return "\n\n".join(parts)
 
 
@@ -463,7 +492,10 @@ def main(argv: list[str] | None = None) -> int:
                         else:
                             try:
                                 system_prompt = _build_cli_system_prompt(
-                                    cognitive_bridge, neuro, user_id=payload.user_id
+                                    cognitive_bridge,
+                                    neuro,
+                                    backend=args.backend,
+                                    user_id=payload.user_id,
                                 )
                                 local_reply = send_to_backend(
                                     payload.content,

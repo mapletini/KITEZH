@@ -122,6 +122,48 @@ class TestMakeToolExecutor(unittest.TestCase):
         result = self.executor("store_note", {})
         self.assertIn("Error", result)
 
+    # ── runtime awareness / device tools ─────────────────────────────────────
+
+    def test_get_runtime_status_returns_json(self) -> None:
+        from skills.tool_executor import make_tool_executor
+
+        executor = make_tool_executor(
+            awareness_provider=lambda: {"interface": "web", "tools_available": ["get_runtime_status"]}
+        )
+        result = executor("get_runtime_status", {})
+        self.assertIn('"interface": "web"', result)
+
+    def test_list_cameras_returns_status_and_cameras(self) -> None:
+        tapo_hub = MagicMock()
+        tapo_hub.status.return_value = {"available": True, "camera_count": 1}
+        tapo_hub.list_cameras.return_value = [{"name": "front_door"}]
+
+        from skills.tool_executor import make_tool_executor
+
+        executor = make_tool_executor(tapo_hub=tapo_hub)
+        result = executor("list_cameras", {})
+        self.assertIn("front_door", result)
+        self.assertIn('"camera_count": 1', result)
+
+    def test_get_display_state_returns_json(self) -> None:
+        display_bridge = MagicMock()
+        display_bridge.latest.return_value = {"mode": "idle", "version": 2}
+
+        from skills.tool_executor import make_tool_executor
+
+        executor = make_tool_executor(display_bridge=display_bridge)
+        result = executor("get_display_state", {})
+        self.assertIn('"mode": "idle"', result)
+
+    def test_capture_camera_snapshot_requires_name(self) -> None:
+        tapo_hub = MagicMock()
+
+        from skills.tool_executor import make_tool_executor
+
+        executor = make_tool_executor(tapo_hub=tapo_hub)
+        result = executor("capture_camera_snapshot", {})
+        self.assertIn("camera_name", result)
+
     # ── unknown tool ─────────────────────────────────────────────────────────
 
     def test_unknown_tool_returns_error_message(self) -> None:
@@ -139,9 +181,9 @@ class TestToolDefinitions(unittest.TestCase):
             self.assertIn("description", fn)
             self.assertIn("parameters", fn)
 
-    def test_five_tools_defined(self) -> None:
+    def test_expected_number_of_tools_defined(self) -> None:
         from skills.tool_executor import TOOL_DEFINITIONS
-        self.assertEqual(len(TOOL_DEFINITIONS), 5)
+        self.assertEqual(len(TOOL_DEFINITIONS), 9)
 
 
 if __name__ == "__main__":

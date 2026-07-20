@@ -8,6 +8,7 @@ instances.
 
 from __future__ import annotations
 
+import json
 import logging
 import time
 from typing import Any, Callable
@@ -19,6 +20,21 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 TOOL_DEFINITIONS: list[dict[str, Any]] = [
+    {
+        "type": "function",
+        "function": {
+            "name": "get_runtime_status",
+            "description": (
+                "Report K.A.I.'s current runtime mode, active backend, live subsystems, "
+                "and the exact actions available right now."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {},
+                "required": [],
+            },
+        },
+    },
     {
         "type": "function",
         "function": {
@@ -127,6 +143,52 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "list_cameras",
+            "description": (
+                "List known Tapo cameras and wakeword availability. "
+                "Use this before claiming live camera access."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {},
+                "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "capture_camera_snapshot",
+            "description": (
+                "Capture a live snapshot from a named camera when camera access is available."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "camera_name": {
+                        "type": "string",
+                        "description": "The configured camera name to capture from.",
+                    }
+                },
+                "required": ["camera_name"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_display_state",
+            "description": "Return the latest shared display/face state being published by K.A.I.",
+            "parameters": {
+                "type": "object",
+                "properties": {},
+                "required": [],
+            },
+        },
+    },
 ]
 
 
@@ -138,6 +200,9 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
 def make_tool_executor(
     memory: Any | None = None,
     neuro: Any | None = None,
+    awareness_provider: Callable[[], dict[str, Any]] | None = None,
+    tapo_hub: Any | None = None,
+    display_bridge: Any | None = None,
 ) -> Callable[[str, dict[str, Any]], str]:
     """
     Return a tool executor function bound to the given memory and neuro instances.
@@ -160,6 +225,15 @@ def make_tool_executor(
 
     def execute_tool(name: str, arguments: dict[str, Any]) -> str:
         logger.info("K.A.I. tool call: %s(%s)", name, arguments)
+
+        # ── get_runtime_status ────────────────────────────────────────────────
+        if name == "get_runtime_status":
+            if awareness_provider is None:
+                return "Runtime awareness unavailable."
+            try:
+                return json.dumps(awareness_provider(), ensure_ascii=False, indent=2)
+            except Exception as exc:
+                return f"Error reading runtime status: {exc}"
 
         # ── read_workspace_file ──────────────────────────────────────────────
         if name == "read_workspace_file":
@@ -238,6 +312,41 @@ def make_tool_executor(
                 return f"Note saved to '{filename}'."
             except Exception as exc:
                 return f"Error saving note: {exc}"
+
+        # ── list_cameras ─────────────────────────────────────────────────────
+        if name == "list_cameras":
+            if tapo_hub is None:
+                return "Camera subsystem unavailable."
+            try:
+                status = tapo_hub.status()
+                cameras = tapo_hub.list_cameras()
+                return json.dumps({"status": status, "cameras": cameras}, ensure_ascii=False, indent=2)
+            except Exception as exc:
+                return f"Error listing cameras: {exc}"
+
+        # ── capture_camera_snapshot ──────────────────────────────────────────
+        if name == "capture_camera_snapshot":
+            if tapo_hub is None:
+                return "Camera subsystem unavailable."
+            camera_name = str(arguments.get("camera_name", "")).strip()
+            if not camera_name:
+                return "Error: 'camera_name' argument is required."
+            try:
+                snapshot_path = tapo_hub.capture_snapshot(camera_name)
+                if not snapshot_path:
+                    return f"Unable to capture a snapshot from '{camera_name}'."
+                return f"Snapshot saved to '{snapshot_path}'."
+            except Exception as exc:
+                return f"Error capturing snapshot: {exc}"
+
+        # ── get_display_state ────────────────────────────────────────────────
+        if name == "get_display_state":
+            if display_bridge is None:
+                return "Display subsystem unavailable."
+            try:
+                return json.dumps(display_bridge.latest(), ensure_ascii=False, indent=2)
+            except Exception as exc:
+                return f"Error reading display state: {exc}"
 
         return f"Unknown tool: '{name}'."
 

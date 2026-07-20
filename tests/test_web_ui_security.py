@@ -82,14 +82,29 @@ class TestConceptExtraction(unittest.TestCase):
 
 
 class TestKaiQuery(unittest.TestCase):
+    def test_awareness_metadata_reports_no_tools_when_remote_enabled(self) -> None:
+        with patch.object(web_ui.config, "REMOTE_ENABLED", True), patch.object(web_ui.config, "LLM_BACKEND", "llamacpp"):
+            metadata = web_ui._awareness_metadata()
+        self.assertEqual(metadata["tools_available"], [])
+        self.assertFalse(metadata["tool_calling_active"])
+
+    def test_awareness_summary_mentions_unavailable_actions(self) -> None:
+        with patch.object(web_ui.config, "REMOTE_ENABLED", False), patch.object(web_ui.config, "LLM_BACKEND", "ollama"):
+            summary = web_ui._awareness_summary_for_prompt()
+        self.assertIn("No callable tools are available in this runtime.", summary)
+        self.assertIn("If asked about an unavailable action", summary)
+
     def test_query_kai_uses_local_backend_when_remote_disabled(self) -> None:
-        # Default LLM_BACKEND is "ollama" — should still use send_to_backend(content).
+        # Default LLM_BACKEND is "ollama" — should use local backend with system context.
         with patch.object(web_ui.config, "REMOTE_ENABLED", False), \
              patch.object(web_ui.config, "LLM_BACKEND", "ollama"), \
              patch.object(web_ui, "send_to_backend", return_value="local reply") as send_to_backend:
             result = web_ui._query_kai("user-1", "User", "hello")
         self.assertEqual(result, "local reply")
-        send_to_backend.assert_called_once_with("hello")
+        send_to_backend.assert_called_once()
+        _, kwargs = send_to_backend.call_args
+        self.assertEqual(kwargs["backend"], "ollama")
+        self.assertIn("system", kwargs)
 
     def test_query_kai_llamacpp_uses_agentic_path(self) -> None:
         with patch.object(web_ui.config, "REMOTE_ENABLED", False), \

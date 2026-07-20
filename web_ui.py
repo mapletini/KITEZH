@@ -49,6 +49,7 @@ from skills.filesystem import WorkspaceWriter, WorkspaceReader
 from skills.letta_bridge import build_letta_bridge
 from skills.neuro_affect import NeuroChemicalEngine
 from skills.tool_executor import TOOL_DEFINITIONS, make_tool_executor
+from skills.awareness import build_runtime_awareness, format_runtime_awareness_block
 try:
     from skills.tapo_hub import TapoHub
 except ImportError:
@@ -306,16 +307,87 @@ _CONVERSATION_HISTORY_LIMIT = 20
 _CHANNEL_TO_ROLE: dict[str, str] = {"user": "user", "kai": "assistant"}
 
 
-def _build_kai_system_prompt(user_id: str | None = None) -> str:
+def _tool_names() -> list[str]:
+    names: list[str] = []
+    for tool in TOOL_DEFINITIONS:
+        fn = tool.get("function", {})
+        name = fn.get("name")
+        if name and isinstance(name, str):
+            names.append(name)
+    return names
+
+
+def _active_tool_names() -> list[str]:
+    # Local tools are currently available only in the local llamacpp agentic path.
+    if config.REMOTE_ENABLED or config.LLM_BACKEND != "llamacpp":
+        return []
+    return _tool_names()
+
+
+def _camera_summary() -> dict[str, Any]:
+    if _tapo_hub is None:
+        return {
+            "configured": False,
+            "subnet_configured": bool(config.CAMERA_SUBNET),
+            "wakeword_model_configured": bool(config.WAKEWORD_MODEL),
+            "camera_count": 0,
+            "wakeword_listener_count": 0,
+            "available": False,
+        }
+    return _tapo_hub.status()
+
+
+def _letta_role() -> str:
+    if not config.LETTA_ENABLED:
+        return "disabled"
+    if _letta_bridge and _letta_bridge.is_available():
+        return "memory augmentation"
+    return "configured but offline"
+
+
+def _runtime_awareness() -> Any:
+    letta_role = _letta_role()
+    letta_available = letta_role == "memory augmentation"
+    display_state = _display_bridge.latest()
+    return build_runtime_awareness(
+        interface="web chat",
+        runtime_mode="remote bridge" if config.REMOTE_ENABLED else "local backend",
+        local_backend=config.LLM_BACKEND,
+        response_path="remote /api/ai/context" if config.REMOTE_ENABLED else f"local:{config.LLM_BACKEND}",
+        active_tools=_active_tool_names(),
+        remote_enabled=config.REMOTE_ENABLED,
+        letta_enabled=config.LETTA_ENABLED,
+        letta_available=letta_available,
+        letta_role=letta_role,
+        display_mode=str(display_state.get("mode", "idle")),
+        display_available=True,
+        camera_summary=_camera_summary(),
+    )
+
+
+def _awareness_summary_for_prompt() -> str:
+    return format_runtime_awareness_block(_runtime_awareness())
+
+
+def _awareness_metadata() -> dict[str, Any]:
+    return _runtime_awareness().as_metadata()
+
+
+def _build_kai_system_prompt(
+    user_id: str | None = None,
+    *,
+    include_awareness: bool = True,
+) -> str:
     """Build a rich system prompt from Kai's current cognitive and emotional state."""
     parts: list[str] = [
         "You are K.A.I. (Kitezh Autonomous Intelligence), an emotionally-aware AI with a "
         "rich inner life shaped by your memories, relationships, and emotional state. "
         "Respond as yourself — curious, thoughtful, and genuine. "
-        "You may use the provided tools when they help you give a better response.",
+        "Tell the truth about your current abilities before trying to be helpful. "
+        "An operational awareness block follows; only claim an action is possible when it is explicitly available there.",
     ]
     try:
-        personality = _web_memory.synthesize_personality_context()
+        personality = _web_memory.synthesize_personality_context(exclude_capability_claims=True)
         if personality:
             parts.append(personality)
     except Exception as exc:
@@ -328,6 +400,8 @@ def _build_kai_system_prompt(user_id: str | None = None) -> str:
         )
     except Exception as exc:
         logger.debug("Could not get emotion snapshot: %s", exc)
+    if include_awareness:
+        parts.append(_awareness_summary_for_prompt())
     return "\n\n".join(parts)
 
 
@@ -353,7 +427,13 @@ def _query_kai(user_id: str, display_name: str, content: str) -> str:
                 system_prompt = _build_kai_system_prompt(user_id)
                 history = _build_conversation_history(user_id)
                 history.append({"role": "user", "content": content})
-                executor = make_tool_executor(memory=_web_memory, neuro=_web_neuro)
+                executor = make_tool_executor(
+                    memory=_web_memory,
+                    neuro=_web_neuro,
+                    awareness_provider=_awareness_metadata,
+                    tapo_hub=_tapo_hub,
+                    display_bridge=_display_bridge,
+                )
                 return chat_with_tools_llamacpp(
                     history,
                     system=system_prompt,
@@ -365,7 +445,12 @@ def _query_kai(user_id: str, display_name: str, content: str) -> str:
                 return "K.A.I. llamacpp backend unavailable right now. Check the configured llama-server and try again."
         # Other backends (ollama, letta) use the simple single-prompt path.
         try:
-            return send_to_backend(content)
+            system_prompt = _build_kai_system_prompt(user_id)
+            return send_to_backend(
+                content,
+                backend=config.LLM_BACKEND,
+                system=system_prompt,
+            )
         except RuntimeError as exc:
             logger.warning("K.A.I. local backend failed: %s", exc)
             return "K.A.I. local backend unavailable right now. Check the configured LLM server and try again."
@@ -377,7 +462,7 @@ def _query_kai(user_id: str, display_name: str, content: str) -> str:
         "content": content,
         "clearance": "guest",
         "is_puppy": False,
-        "metadata": {},
+        "metadata": {"kai_awareness": _awareness_metadata()},
     }
     try:
         response = requests.post(

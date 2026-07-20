@@ -15,7 +15,11 @@ import config
 logger = logging.getLogger("kitezh.llm_backends")
 
 
-def send_to_ollama(prompt: str, model: str | None = None) -> str:
+def send_to_ollama(
+    prompt: str,
+    model: str | None = None,
+    system: str | None = None,
+) -> str:
     """Send *prompt* to the Ollama REST API and return the generated text."""
     target_model = model or config.OLLAMA_MODEL
     url = f"{config.OLLAMA_BASE_URL}/api/generate"
@@ -24,6 +28,8 @@ def send_to_ollama(prompt: str, model: str | None = None) -> str:
         "prompt": prompt,
         "stream": False,
     }
+    if system:
+        payload["system"] = system
 
     logger.info("Sending prompt to Ollama (model=%s, url=%s)", target_model, url)
     try:
@@ -43,7 +49,11 @@ def send_to_ollama(prompt: str, model: str | None = None) -> str:
         raise RuntimeError(f"Ollama request failed: {exc}") from exc
 
 
-def send_to_letta(prompt: str, agent_id: str | None = None) -> str:
+def send_to_letta(
+    prompt: str,
+    agent_id: str | None = None,
+    system: str | None = None,
+) -> str:
     """Send *prompt* to the Letta REST API and return the assistant's reply."""
     target_agent = agent_id or config.LETTA_AGENT_ID
     if not target_agent:
@@ -53,9 +63,13 @@ def send_to_letta(prompt: str, agent_id: str | None = None) -> str:
         )
 
     url = f"{config.LETTA_BASE_URL}/v1/agents/{target_agent}/messages"
-    payload: dict[str, Any] = {
-        "messages": [{"role": "user", "content": prompt}]
-    }
+    # Letta accepts OpenAI-style role/content messages, so system context is
+    # included as a system-role message before the user message.
+    messages: list[dict[str, Any]] = []
+    if system:
+        messages.append({"role": "system", "content": system})
+    messages.append({"role": "user", "content": prompt})
+    payload: dict[str, Any] = {"messages": messages}
 
     logger.info("Sending prompt to Letta (agent=%s, url=%s)", target_agent, url)
     try:
@@ -131,11 +145,11 @@ def send_to_backend(
     """Send *prompt* to the configured local backend."""
     target_backend = backend or config.LLM_BACKEND
     if target_backend == "ollama":
-        return send_to_ollama(prompt, model=model)
+        return send_to_ollama(prompt, model=model, system=system)
     if target_backend == "llamacpp":
         return send_to_llamacpp(prompt, model=model, system=system)
     if target_backend == "letta":
-        return send_to_letta(prompt, agent_id=agent_id)
+        return send_to_letta(prompt, agent_id=agent_id, system=system)
     raise RuntimeError(f"Unsupported backend: {target_backend}")
 
 
