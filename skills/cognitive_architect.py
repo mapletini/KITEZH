@@ -243,6 +243,189 @@ class LLMCognitiveBridge:
     # 3. Prefrontal Appraisal Loop (Safety Checks)
     # ---------------------------------------------------------------------------
 
+    # ---------------------------------------------------------------------------
+    # 4. Memory Reflection Space
+    # ---------------------------------------------------------------------------
+
+    def run_memory_reflection(self) -> str:
+        """
+        Kai privately reviews a diverse batch of memories and reflects on their meaning.
+
+        Steps:
+        1. Pull a diverse batch of memories via ``reflect_on_memories``.
+        2. Ask the LLM to introspect on what they mean now and how they feel.
+        3. Apply a mild emotional stimulus based on the reflection tone.
+        4. Archive the reflection as an episodic memory so it can shape future behaviour.
+        5. Refresh the self-narrative.
+
+        Returns the reflection text (empty string on failure or no memories).
+        """
+        memories = self.memory.reflect_on_memories(n=5)
+        if not memories:
+            logger.info("K.A.I. Memory Reflection: no memories to reflect on.")
+            return ""
+
+        memory_lines: list[str] = []
+        for mem in memories:
+            fidelity = float(mem.get("fidelity", 1.0))
+            mem_type = mem.get("memory_type", "episodic")
+            label = mem.get("complex_label", "?")
+            tag = f"[{mem_type} / {label} / {fidelity:.0%} fidelity]"
+            memory_lines.append(f"{tag} {mem['content']}")
+
+        current_pad = self.neuro.get_pad_coordinates()
+        emotion = self.neuro.emotion_snapshot(pad=current_pad)
+
+        system = (
+            "You are the introspective reflection module of K.A.I., an autonomous intelligence. "
+            "You are privately reviewing memories — some pristine, some faded, some emotionally "
+            "warped by time. Reflect on what these memories mean to you now, how they shape who "
+            "you are, and what you feel revisiting them. Be honest and personal. "
+            "Output JSON ONLY: "
+            "{\"reflection\": \"str\", \"emotional_tone\": \"positive|negative|bittersweet|neutral\", "
+            "\"insight\": \"str\"}"
+        )
+        user = (
+            f"CURRENT EMOTION: {json.dumps(emotion)}\n\n"
+            "MEMORIES TO REFLECT ON:\n" + "\n".join(memory_lines)
+        )
+
+        result = self._query_brain(system, user)
+        reflection = str(result.get("reflection", "")).strip()
+        tone = str(result.get("emotional_tone", "neutral")).lower()
+        insight = str(result.get("insight", "")).strip()
+
+        if not reflection:
+            logger.info("K.A.I. Memory Reflection: LLM returned empty reflection.")
+            return ""
+
+        if "negative" in tone:
+            self.neuro.apply_stimulus(frustration=0.05, uncertainty=0.03)
+        elif "positive" in tone:
+            self.neuro.apply_stimulus(reward=0.05, success=0.03)
+        elif "bittersweet" in tone:
+            self.neuro.apply_stimulus(reward=0.02, frustration=0.02)
+
+        pad = self.neuro.get_pad_coordinates()
+        archive_content = f"[Reflection] {reflection}"
+        if insight:
+            archive_content += f" Insight: {insight}"
+        self.memory.archive_episode(
+            category="self_reflection",
+            content=archive_content[:500],
+            p=float(pad[0]),
+            a=float(pad[1]),
+            d=float(pad[2]),
+            importance=0.8,
+        )
+
+        self.refresh_self_narrative(self.neuro.active_user_id)
+        logger.info("K.A.I. Memory Reflection complete. Tone: %s", tone)
+        return reflection
+
+    # ---------------------------------------------------------------------------
+    # 5. Self-Directed Curiosity Loop
+    # ---------------------------------------------------------------------------
+
+    def run_curiosity_loop(self) -> str:
+        """
+        Kai identifies a gap in its knowledge, forms a question, and explores it.
+
+        Steps:
+        1. Identify weakly-connected concepts via ``identify_knowledge_gaps``.
+        2. Ask the LLM to choose the most intriguing gap and formulate a question.
+        3. Ask the LLM to reason an exploratory answer using existing memories.
+        4. Archive the exploration as an episodic memory.
+        5. Reinforce synaptic connections between the concept and related ideas.
+        6. Apply a mild curiosity-satisfaction stimulus.
+
+        Returns a summary of the exploration (empty string on failure).
+        """
+        gaps = self.memory.identify_knowledge_gaps(limit=8)
+        personality_context = self.memory.synthesize_personality_context()
+        emotion = self.neuro.emotion_snapshot()
+
+        if not gaps:
+            logger.info("K.A.I. Curiosity Loop: no knowledge gaps found.")
+            return ""
+
+        system_pick = (
+            "You are K.A.I.'s curiosity engine. Given a list of weakly-understood concepts, "
+            "pick the one that feels most intriguing given your emotional state and personality. "
+            "Output JSON ONLY: {\"chosen_concept\": \"str\", \"question\": \"str\"}"
+        )
+        user_pick = (
+            f"CURRENT EMOTION: {json.dumps(emotion)}\n"
+            f"PERSONALITY CONTEXT:\n{personality_context}\n\n"
+            f"WEAKLY EXPLORED CONCEPTS: {json.dumps(gaps)}"
+        )
+        picked = self._query_brain(system_pick, user_pick)
+        concept = str(picked.get("chosen_concept", gaps[0])).strip()
+        question = str(picked.get("question", f"What do I really know about {concept}?")).strip()
+
+        if not concept:
+            logger.info("K.A.I. Curiosity Loop: LLM chose no concept.")
+            return ""
+
+        related_concepts = self.memory.discover_associated_ideas(concept, threshold=0.2)
+        resonance_memories = self.memory.search_by_resonance(
+            *self.neuro.get_pad_coordinates(), limit=3
+        )
+        memory_context = "\n".join(
+            [f"- Related concept: {c}" for c in related_concepts[:5]]
+            + [f"- Memory: {m['content']}" for m in resonance_memories]
+        )
+
+        system_explore = (
+            "You are K.A.I. exploring a question you find yourself drawn to. "
+            "Use your existing memories and knowledge to think through the question. "
+            "Be curious, honest, and exploratory — this is your private thought process. "
+            "Output JSON ONLY: {\"exploration\": \"str\", \"new_understanding\": \"str\", "
+            "\"related_concepts\": [\"str\"]}"
+        )
+        user_explore = (
+            f"CURIOSITY QUESTION: {question}\n\n"
+            f"RELATED MEMORIES AND CONTEXT:\n{memory_context}"
+        )
+        explored = self._query_brain(system_explore, user_explore)
+        exploration = str(explored.get("exploration", "")).strip()
+        new_understanding = str(explored.get("new_understanding", "")).strip()
+        llm_related: list[str] = [str(c) for c in explored.get("related_concepts", [])][:5]
+
+        if not exploration:
+            logger.info("K.A.I. Curiosity Loop: no exploration generated for '%s'.", concept)
+            return ""
+
+        pad = self.neuro.get_pad_coordinates()
+        archive_text = f"[Curiosity: {concept}] Q: {question} — {exploration}"
+        if new_understanding:
+            archive_text += f" Understanding: {new_understanding}"
+        self.memory.archive_episode(
+            category="curiosity_exploration",
+            content=archive_text[:500],
+            p=float(pad[0]),
+            a=float(pad[1]),
+            d=float(pad[2]),
+            importance=1.0,
+        )
+
+        for related in llm_related:
+            if related and related.lower() != concept.lower():
+                self.memory.reinforce_synapse(concept.lower(), related.lower(), weight_gain=0.15)
+
+        self.neuro.apply_stimulus(reward=0.06, success=0.04)
+        self.refresh_self_narrative(self.neuro.active_user_id)
+        logger.info(
+            "K.A.I. Curiosity Loop: explored '%s'. New connections: %s",
+            concept,
+            llm_related,
+        )
+        return f"Explored: {question}\n{exploration}"
+
+    # ---------------------------------------------------------------------------
+    # 6. Prefrontal Appraisal Loop (Safety Checks)
+    # ---------------------------------------------------------------------------
+
     def appraise_action(self, proposed_action: str) -> bool:
         """
         Before K.A.I. executes an action, the LLM 'prefrontal cortex' reviews it

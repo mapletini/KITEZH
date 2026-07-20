@@ -369,6 +369,82 @@ class TestDeepMemoryCore(unittest.TestCase):
         associated = self.mem.discover_associated_ideas("trust", threshold=0.5)
         self.assertNotIn("caution", associated)
 
+    # ------------------------------------------------------------------
+    # reflect_on_memories
+    # ------------------------------------------------------------------
+
+    def test_reflect_on_memories_empty_db_returns_empty_list(self) -> None:
+        result = self.mem.reflect_on_memories(n=5)
+        self.assertEqual(result, [])
+
+    def test_reflect_on_memories_returns_list_of_dicts(self) -> None:
+        for i in range(6):
+            self.mem.archive_episode("chat", f"memory {i}", p=0.1 * i, a=0.2, d=0.8)
+        result = self.mem.reflect_on_memories(n=5)
+        self.assertIsInstance(result, list)
+        self.assertGreater(len(result), 0)
+        for item in result:
+            self.assertIsInstance(item, dict)
+            self.assertIn("content", item)
+
+    def test_reflect_on_memories_respects_limit(self) -> None:
+        for i in range(10):
+            self.mem.archive_episode("chat", f"memory {i}", p=0.1, a=0.2, d=0.8)
+        result = self.mem.reflect_on_memories(n=4)
+        self.assertLessEqual(len(result), 4)
+
+    def test_reflect_on_memories_no_duplicates(self) -> None:
+        for i in range(5):
+            self.mem.archive_episode("chat", f"memory {i}", p=0.1, a=0.2, d=0.8)
+        result = self.mem.reflect_on_memories(n=5)
+        ids = [item["id"] for item in result]
+        self.assertEqual(len(ids), len(set(ids)), "Duplicate memory IDs returned")
+
+    def test_reflect_on_memories_includes_oldest(self) -> None:
+        import sqlite3, time
+        self.mem.archive_episode("old", "ancient memory", p=0.1, a=0.2, d=0.8)
+        old_id = sqlite3.connect(self.mem.db_path).execute(
+            "SELECT id FROM archival_memory ORDER BY id ASC LIMIT 1"
+        ).fetchone()[0]
+        for i in range(4):
+            self.mem.archive_episode("recent", f"new memory {i}", p=0.1, a=0.2, d=0.8)
+        result = self.mem.reflect_on_memories(n=5)
+        returned_ids = {item["id"] for item in result}
+        self.assertIn(old_id, returned_ids, "Oldest memory should be included in reflection batch")
+
+    # ------------------------------------------------------------------
+    # identify_knowledge_gaps
+    # ------------------------------------------------------------------
+
+    def test_identify_knowledge_gaps_empty_synapses_returns_empty(self) -> None:
+        gaps = self.mem.identify_knowledge_gaps()
+        self.assertEqual(gaps, [])
+
+    def test_identify_knowledge_gaps_returns_list_of_strings(self) -> None:
+        self.mem.reinforce_synapse("trust", "safety", weight_gain=0.5)
+        self.mem.reinforce_synapse("curiosity", "learning", weight_gain=0.1)
+        gaps = self.mem.identify_knowledge_gaps(limit=5)
+        self.assertIsInstance(gaps, list)
+        for item in gaps:
+            self.assertIsInstance(item, str)
+
+    def test_identify_knowledge_gaps_returns_weak_concept_first(self) -> None:
+        # reinforce_synapse sorts (concept_a, concept_b) alphabetically so that the
+        # lower-alphabetical string becomes the source_concept in the synapses table.
+        # "alpha" < "zeta"  → source="alpha"  (high strength = well-known)
+        # "beta"  < "gamma" → source="beta"   (low strength  = gap)
+        self.mem.reinforce_synapse("alpha", "zeta", weight_gain=0.9)
+        self.mem.reinforce_synapse("beta", "gamma", weight_gain=0.05)
+        gaps = self.mem.identify_knowledge_gaps(limit=5)
+        self.assertGreater(len(gaps), 0)
+        self.assertEqual(gaps[0], "beta", "Weakest concept should appear first")
+
+    def test_identify_knowledge_gaps_respects_limit(self) -> None:
+        for i in range(10):
+            self.mem.reinforce_synapse(f"concept_{i}", "anchor", weight_gain=0.1 * (i + 1))
+        gaps = self.mem.identify_knowledge_gaps(limit=3)
+        self.assertLessEqual(len(gaps), 3)
+
 
 if __name__ == "__main__":
     unittest.main()

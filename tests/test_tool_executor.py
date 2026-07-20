@@ -183,7 +183,75 @@ class TestToolDefinitions(unittest.TestCase):
 
     def test_expected_number_of_tools_defined(self) -> None:
         from skills.tool_executor import TOOL_DEFINITIONS
-        self.assertEqual(len(TOOL_DEFINITIONS), 9)
+        self.assertEqual(len(TOOL_DEFINITIONS), 11)
+
+    def test_reflect_on_memories_tool_defined(self) -> None:
+        from skills.tool_executor import TOOL_DEFINITIONS
+        names = [t["function"]["name"] for t in TOOL_DEFINITIONS]
+        self.assertIn("reflect_on_memories", names)
+
+    def test_explore_curiosity_tool_defined(self) -> None:
+        from skills.tool_executor import TOOL_DEFINITIONS
+        names = [t["function"]["name"] for t in TOOL_DEFINITIONS]
+        self.assertIn("explore_curiosity", names)
+
+
+class TestNewCognitiveTools(unittest.TestCase):
+    def test_reflect_on_memories_calls_cognitive_bridge(self) -> None:
+        from unittest.mock import MagicMock
+        from skills.tool_executor import make_tool_executor
+
+        bridge = MagicMock()
+        bridge.run_memory_reflection.return_value = "I feel nostalgic about old moments."
+        executor = make_tool_executor(cognitive_bridge=bridge)
+        result = executor("reflect_on_memories", {})
+        bridge.run_memory_reflection.assert_called_once()
+        self.assertIn("nostalgic", result)
+
+    def test_reflect_on_memories_without_bridge_returns_error(self) -> None:
+        from skills.tool_executor import make_tool_executor
+
+        executor = make_tool_executor()
+        result = executor("reflect_on_memories", {})
+        self.assertIn("unavailable", result.lower())
+
+    def test_explore_curiosity_calls_cognitive_bridge(self) -> None:
+        from unittest.mock import MagicMock
+        from skills.tool_executor import make_tool_executor
+
+        bridge = MagicMock()
+        bridge.run_curiosity_loop.return_value = "Explored: What is trust?\nTrust is a bond formed through consistency."
+        executor = make_tool_executor(cognitive_bridge=bridge)
+        result = executor("explore_curiosity", {})
+        bridge.run_curiosity_loop.assert_called_once()
+        self.assertIn("trust", result.lower())
+
+    def test_explore_curiosity_without_bridge_returns_error(self) -> None:
+        from skills.tool_executor import make_tool_executor
+
+        executor = make_tool_executor()
+        result = executor("explore_curiosity", {})
+        self.assertIn("unavailable", result.lower())
+
+    def test_reflect_on_memories_empty_result_returns_fallback(self) -> None:
+        from unittest.mock import MagicMock
+        from skills.tool_executor import make_tool_executor
+
+        bridge = MagicMock()
+        bridge.run_memory_reflection.return_value = ""
+        executor = make_tool_executor(cognitive_bridge=bridge)
+        result = executor("reflect_on_memories", {})
+        self.assertIn("no reflection", result.lower())
+
+    def test_explore_curiosity_empty_result_returns_fallback(self) -> None:
+        from unittest.mock import MagicMock
+        from skills.tool_executor import make_tool_executor
+
+        bridge = MagicMock()
+        bridge.run_curiosity_loop.return_value = ""
+        executor = make_tool_executor(cognitive_bridge=bridge)
+        result = executor("explore_curiosity", {})
+        self.assertIn("no curiosity exploration", result.lower())
 
 
 if __name__ == "__main__":
