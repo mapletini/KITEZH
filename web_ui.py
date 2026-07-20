@@ -604,21 +604,21 @@ def _advance_web_autonomy() -> None:
 
 
 async def _dream_consolidation_daemon() -> None:
-    dream_count = 0
+    consolidation_cycle_count = 0
     while True:
         await asyncio.sleep(_DREAM_CONSOLIDATION_INTERVAL_SECONDS)
         try:
             _web_memory.execute_dream_consolidation()
-            dream_count += 1
+            consolidation_cycle_count += 1
             logger.info("Background dream consolidation complete.")
             if _letta_bridge is not None:
                 personality_ctx = _web_memory.synthesize_personality_context()
                 _letta_bridge.send_dream_message(personality_ctx)
-            if dream_count % config.REFLECTION_CYCLE_INTERVAL == 0:
+            if consolidation_cycle_count % config.REFLECTION_CYCLE_INTERVAL == 0:
                 reflection = await asyncio.to_thread(_web_cognitive.run_memory_reflection)
                 if reflection:
                     logger.info("Background memory reflection complete.")
-            if dream_count % config.CURIOSITY_CYCLE_INTERVAL == 0:
+            if consolidation_cycle_count % config.CURIOSITY_CYCLE_INTERVAL == 0:
                 exploration = await asyncio.to_thread(_web_cognitive.run_curiosity_loop)
                 if exploration:
                     logger.info("Background curiosity loop complete.")
