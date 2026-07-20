@@ -47,11 +47,11 @@ MIN_FIDELITY: float = 0.10
 # Number of leading characters used to deduplicate Letta results against local results
 _LETTA_DEDUP_PREFIX_LEN: int = 100
 _PREFERENCE_TOKEN_RE = re.compile(r"[A-Za-z][A-Za-z0-9_-]{3,}")
-_CAPABILITY_SUBJECT_RE = r"(?:i|kai)"
+_CAPABILITY_SUBJECT_RE = r"(?:\bi\b|\bkai\b)"
 _CAPABILITY_VERB_RE = (
     r"(?:(?:can|can't|cannot|am able to)\s+"
     r"(?:use|access|read|write|edit|modify|list|call|query|capture|control|commit|push|deploy|rollback)"
-    r"|have access to|can access|can use)"
+    r"|have access to|has access to|can access|can use)"
 )
 _CAPABILITY_OBJECT_RE = (
     r"(?:tool|tools|file|files|workspace|terminal|shell|api|apis|camera|cameras|"
@@ -62,7 +62,7 @@ _TECHNICAL_CAPABILITY_CLAIM_RE = re.compile(
     rf"""
     # Match first-person technical ability claims like
     # "I can edit files", "Kai has access to the API", etc.
-    \b{_CAPABILITY_SUBJECT_RE}\s+{_CAPABILITY_VERB_RE}\b
+    {_CAPABILITY_SUBJECT_RE}\s+{_CAPABILITY_VERB_RE}\b
     {_CAPABILITY_GAP_RE}
     \b{_CAPABILITY_OBJECT_RE}\b
     """,

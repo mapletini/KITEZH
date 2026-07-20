@@ -181,7 +181,7 @@ class TestToolDefinitions(unittest.TestCase):
             self.assertIn("description", fn)
             self.assertIn("parameters", fn)
 
-    def test_nine_tools_defined(self) -> None:
+    def test_expected_number_of_tools_defined(self) -> None:
         from skills.tool_executor import TOOL_DEFINITIONS
         self.assertEqual(len(TOOL_DEFINITIONS), 9)
 
