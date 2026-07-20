@@ -34,8 +34,8 @@ class RuntimeAwareness:
         if not self.letta_available:
             unavailable.append("Letta-backed long-term memory services are unavailable right now.")
 
-        camera_count = int(self.camera_summary.get("camera_count", 0) or 0)
-        listener_count = int(self.camera_summary.get("wakeword_listener_count", 0) or 0)
+        camera_count = int(self.camera_summary.get("camera_count") or 0)
+        listener_count = int(self.camera_summary.get("wakeword_listener_count") or 0)
         cameras_state = (
             f"{camera_count} camera(s) known, {listener_count} wakeword listener(s) active"
             if camera_count or listener_count

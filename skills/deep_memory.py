@@ -48,9 +48,11 @@ MIN_FIDELITY: float = 0.10
 _LETTA_DEDUP_PREFIX_LEN: int = 100
 _PREFERENCE_TOKEN_RE = re.compile(r"[A-Za-z][A-Za-z0-9_-]{3,}")
 _TECHNICAL_CAPABILITY_CLAIM_RE = re.compile(
-    r"\b(?:i|kai)\s+(?:can|can't|cannot|am able to|have access to|can access|can use)\b"
-    r".{0,120}\b(?:tool|tools|file|files|workspace|terminal|shell|api|apis|camera|cameras|"
-    r"browser|code|repository|repo|git|commit|push|deploy|deployment|server|memory)\b",
+    r"\b(?:i|kai)\s+(?:(?:can|can't|cannot|am able to)\s+"
+    r"(?:use|access|read|write|edit|modify|list|call|query|capture|control|commit|push|deploy|rollback)"
+    r"|have access to|can access|can use)\b"
+    r".{0,80}\b(?:tool|tools|file|files|workspace|terminal|shell|api|apis|camera|cameras|"
+    r"browser|code|repository|repo|git|deployment|server|memory)\b",
     re.IGNORECASE,
 )
 _COMMON_PREFERENCE_STOPWORDS = {

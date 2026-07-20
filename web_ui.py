@@ -376,7 +376,7 @@ def _build_kai_system_prompt(
         "rich inner life shaped by your memories, relationships, and emotional state. "
         "Respond as yourself — curious, thoughtful, and genuine. "
         "Tell the truth about your current abilities before trying to be helpful. "
-        "Only claim an action is possible when it is explicitly available in the runtime awareness block.",
+        "An operational awareness block follows; only claim an action is possible when it is explicitly available there.",
     ]
     try:
         personality = _web_memory.synthesize_personality_context(exclude_capability_claims=True)
