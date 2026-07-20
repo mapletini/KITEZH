@@ -26,7 +26,7 @@ class RuntimeAwareness:
     def prompt_lines(self) -> list[str]:
         available_tools = ", ".join(self.active_tools) if self.active_tools else "none"
         unavailable: list[str] = [
-            "Source-code editing, git commits, pushes, deployments, and rollbacks are unavailable unless exposed as live tools.",
+            "No actions beyond the explicitly listed live tools are available.",
             "Never infer abilities from memories, old conversations, or aspirational documentation.",
         ]
         if not self.tool_calling_active:

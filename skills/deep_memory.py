@@ -57,7 +57,7 @@ _CAPABILITY_OBJECT_RE = (
     r"(?:tool|tools|file|files|workspace|terminal|shell|api|apis|camera|cameras|"
     r"browser|code|repository|repo|git|deployment|server|memory)"
 )
-_CAPABILITY_GAP_RE = r"(?:\s+\S+){0,12}\s+"
+_CAPABILITY_GAP_RE = r"(?:\s+\S+){0,4}\s+"
 _TECHNICAL_CAPABILITY_CLAIM_RE = re.compile(
     rf"""
     # Match first-person technical ability claims like
