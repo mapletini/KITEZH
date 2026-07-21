@@ -173,6 +173,7 @@ def _start_autonomy_daemon(
 ) -> threading.Thread:
     def _run() -> None:
         autonomy_cycles = 0
+        dream_cycles = 0
         while not stop_event.wait(config.AUTONOMY_INTERVAL_SECONDS):
             with state_lock:
                 snapshot = neuro.advance_autonomous_state(config.AUTONOMY_INTERVAL_SECONDS)
@@ -182,9 +183,14 @@ def _start_autonomy_daemon(
                 cognitive_bridge.refresh_self_narrative(neuro.active_user_id)
                 autonomy_cycles += 1
                 if autonomy_cycles % _AUTONOMY_DREAM_CONSOLIDATION_CYCLES == 0:
+                    dream_cycles += 1
                     cognitive_bridge.memory.execute_dream_consolidation()
                     if letta_bridge is not None:
                         letta_bridge.send_dream_message(cognitive_bridge.memory.synthesize_personality_context())
+                    if dream_cycles % config.REFLECTION_CYCLE_INTERVAL == 0:
+                        cognitive_bridge.run_memory_reflection()
+                    if dream_cycles % config.CURIOSITY_CYCLE_INTERVAL == 0:
+                        cognitive_bridge.run_curiosity_loop()
                     _publish_display_state(
                         display_bridge,
                         cognitive_bridge,

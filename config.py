@@ -173,6 +173,19 @@ DISPLAY_STATE_PATH: str = os.environ.get(
 #: Idle progression cadence in seconds for autonomous mood drift and display refresh.
 AUTONOMY_INTERVAL_SECONDS: float = float(os.environ.get("KITEZH_AUTONOMY_INTERVAL", "15.0"))
 
+#: Number of dream-consolidation cycles between memory reflection sessions (CLI autonomy daemon).
+#: Set to 1 to reflect every consolidation run; higher values reduce LLM load.
+REFLECTION_CYCLE_INTERVAL: int = int(os.environ.get("KITEZH_REFLECTION_INTERVAL", "1"))
+
+#: Number of dream-consolidation cycles between curiosity-loop runs (CLI autonomy daemon).
+CURIOSITY_CYCLE_INTERVAL: int = int(os.environ.get("KITEZH_CURIOSITY_INTERVAL", "2"))
+
+#: Interval in seconds between memory reflection sessions in the web autonomy daemon.
+REFLECTION_INTERVAL_SECONDS: float = float(os.environ.get("KITEZH_REFLECTION_INTERVAL_SECS", "3600"))
+
+#: Interval in seconds between curiosity-loop runs in the web autonomy daemon.
+CURIOSITY_INTERVAL_SECONDS: float = float(os.environ.get("KITEZH_CURIOSITY_INTERVAL_SECS", "7200"))
+
 #: Interval used by local terminal/framebuffer face processes when polling the display state file.
 DISPLAY_REFRESH_SECONDS: float = float(os.environ.get("KITEZH_DISPLAY_REFRESH_SECONDS", "1.0"))
 

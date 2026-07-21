@@ -778,3 +778,73 @@ class DeepMemoryCore:
                 )
 
             conn.commit()
+
+    # ---------------------------------------------------------------------------
+    # 7. Memory Reflection & Curiosity
+    # ---------------------------------------------------------------------------
+
+    def reflect_on_memories(self, n: int = 5) -> List[Dict[str, Any]]:
+        """
+        Return a diverse batch of memories for introspective reflection.
+
+        Selection strategy (groups may overlap; deduplication is applied):
+        - Oldest memories (time-worn, potentially distorted)
+        - Most-decayed episodic memories (fidelity closest to MIN_FIDELITY)
+        - Highest-importance memories (anchors and flashbulb moments)
+        """
+        per_group = max(1, n // 3)
+        remainder = n - per_group * 3
+
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+
+            oldest = cursor.execute(
+                "SELECT * FROM archival_memory ORDER BY timestamp ASC LIMIT ?",
+                (per_group + remainder,),
+            ).fetchall()
+
+            faded = cursor.execute(
+                """SELECT * FROM archival_memory WHERE memory_type = 'episodic'
+                   ORDER BY fidelity ASC LIMIT ?""",
+                (per_group,),
+            ).fetchall()
+
+            anchors = cursor.execute(
+                "SELECT * FROM archival_memory ORDER BY importance_weight DESC LIMIT ?",
+                (per_group,),
+            ).fetchall()
+
+        seen: set[int] = set()
+        results: List[Dict[str, Any]] = []
+        for group in (oldest, faded, anchors):
+            for row in group:
+                row_dict = dict(row)
+                if row_dict["id"] not in seen:
+                    seen.add(row_dict["id"])
+                    results.append(row_dict)
+
+        return results[:n]
+
+    def identify_knowledge_gaps(self, limit: int = 5) -> List[str]:
+        """
+        Return concepts with sparse or weakly reinforced synaptic connections.
+
+        A knowledge gap is a concept Kai has encountered but not deeply explored —
+        low total association strength across all its synapse edges.
+        """
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            rows = cursor.execute(
+                """SELECT source_concept AS concept,
+                          SUM(association_strength) AS total_strength,
+                          COUNT(*) AS connection_count
+                   FROM synapses
+                   GROUP BY source_concept
+                   ORDER BY total_strength ASC, connection_count ASC
+                   LIMIT ?""",
+                (limit,),
+            ).fetchall()
+
+        if not rows:
+            return []
+        return [row["concept"] for row in rows]

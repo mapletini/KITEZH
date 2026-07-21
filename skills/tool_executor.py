@@ -189,6 +189,38 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "reflect_on_memories",
+            "description": (
+                "Trigger a private memory reflection session. Kai will review a diverse "
+                "batch of its memories — old, faded, and significant — and return a "
+                "personal reflection on what they mean right now."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {},
+                "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "explore_curiosity",
+            "description": (
+                "Trigger a self-directed curiosity exploration. Kai will identify a gap "
+                "in its knowledge, form a question about it, and reason through an answer "
+                "using existing memories and associations."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {},
+                "required": [],
+            },
+        },
+    },
 ]
 
 
@@ -203,6 +235,7 @@ def make_tool_executor(
     awareness_provider: Callable[[], dict[str, Any]] | None = None,
     tapo_hub: Any | None = None,
     display_bridge: Any | None = None,
+    cognitive_bridge: Any | None = None,
 ) -> Callable[[str, dict[str, Any]], str]:
     """
     Return a tool executor function bound to the given memory and neuro instances.
@@ -215,6 +248,9 @@ def make_tool_executor(
     neuro:
         A :class:`~skills.neuro_affect.NeuroChemicalEngine` instance (optional).
         Used to colour memory recall by current emotional state.
+    cognitive_bridge:
+        A :class:`~skills.cognitive_architect.LLMCognitiveBridge` instance (optional).
+        Required for ``reflect_on_memories`` and ``explore_curiosity``.
     """
     from skills.filesystem import (
         SandboxViolationError,
@@ -347,6 +383,30 @@ def make_tool_executor(
                 return json.dumps(display_bridge.latest(), ensure_ascii=False, indent=2)
             except Exception as exc:
                 return f"Error reading display state: {exc}"
+
+        # ── reflect_on_memories ──────────────────────────────────────────────
+        if name == "reflect_on_memories":
+            if cognitive_bridge is None:
+                return "Cognitive bridge unavailable."
+            try:
+                reflection = cognitive_bridge.run_memory_reflection()
+                if not reflection:
+                    return "No reflection was produced (no memories or LLM unavailable)."
+                return reflection
+            except Exception as exc:
+                return f"Error during memory reflection: {exc}"
+
+        # ── explore_curiosity ────────────────────────────────────────────────
+        if name == "explore_curiosity":
+            if cognitive_bridge is None:
+                return "Cognitive bridge unavailable."
+            try:
+                exploration = cognitive_bridge.run_curiosity_loop()
+                if not exploration:
+                    return "No curiosity exploration was produced (no gaps or LLM unavailable)."
+                return exploration
+            except Exception as exc:
+                return f"Error during curiosity exploration: {exc}"
 
         return f"Unknown tool: '{name}'."
 
