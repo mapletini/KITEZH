@@ -15,6 +15,7 @@ Covers:
 
 import tempfile
 import unittest
+import os
 
 from skills.deep_memory import (
     DeepMemoryCore,
@@ -66,6 +67,13 @@ class TestDeepMemoryCore(unittest.TestCase):
         for col in ("memory_type", "original_content", "fidelity", "distortion_score",
                     "recall_count", "last_recalled", "last_recall_p", "last_recall_a", "last_recall_d"):
             self.assertIn(col, columns, f"Missing column: {col}")
+
+    def test_initialization_creates_missing_workspace_directory(self) -> None:
+        nested_workspace = os.path.join(self._tmp, "missing", "nested")
+        self.assertFalse(os.path.exists(nested_workspace))
+        mem = DeepMemoryCore(workspace_path=nested_workspace)
+        self.assertTrue(os.path.isdir(nested_workspace))
+        self.assertTrue(os.path.isfile(mem.db_path))
 
     # ------------------------------------------------------------------
     # archive_episode

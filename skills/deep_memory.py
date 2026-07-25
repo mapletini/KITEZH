@@ -123,12 +123,19 @@ class EmotionalGraph:
 
 class DeepMemoryCore:
     def __init__(self, workspace_path: str = ".", letta_bridge=None) -> None:
-        self.db_path = os.path.join(workspace_path, "kai_deep_mind.db")
+        self.db_path = os.path.abspath(os.path.join(workspace_path, "kai_deep_mind.db"))
+        db_dir = os.path.dirname(self.db_path)
+        if db_dir:
+            os.makedirs(db_dir, exist_ok=True)
         self._letta = letta_bridge
         self._initialize_schema()
 
     def _get_connection(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(self.db_path)
+        try:
+            conn = sqlite3.connect(self.db_path)
+        except sqlite3.OperationalError:
+            logger.exception("Failed to open deep-memory SQLite database at '%s'", self.db_path)
+            raise
         conn.row_factory = sqlite3.Row
         return conn
 
