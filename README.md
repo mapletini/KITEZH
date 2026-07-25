@@ -54,6 +54,7 @@ pip install -r requirements-wakeword.txt
 Create a .env file in the root directory:
 ```env
 KITEZH_REMOTE_ENABLED=0  # set to 1 to use the external API bridge
+KITEZH_WEB_LOCAL_AGENTIC_FIRST=1  # prefer local llama.cpp tool-calling in web chat; remote is fallback
 
 # Only required when KITEZH_REMOTE_ENABLED=1
 KITEZH_REMOTE_URL=https://your-remote-backend.com
@@ -78,6 +79,11 @@ Legacy compatibility aliases are still accepted:
 
 With `KITEZH_REMOTE_ENABLED=0`, web chat and CLI interactive mode fall back to
 the configured local LLM backend instead of requiring the external API.
+
+With `KITEZH_WEB_LOCAL_AGENTIC_FIRST=1` (default), web chat will attempt the
+local llama.cpp agentic tool loop first so K.A.I. can call tools (including
+editing files in `workspace/`), and only use the remote bridge when local
+agentic execution fails.
 
 ---
 

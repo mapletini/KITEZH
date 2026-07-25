@@ -33,6 +33,13 @@ def _env_flag(primary: str, *aliases: str, default: bool) -> bool:
     return default
 
 
+def _env_csv(primary: str, *aliases: str) -> tuple[str, ...]:
+    raw = _env(primary, *aliases, default="")
+    if not raw:
+        return ()
+    return tuple(part.strip() for part in raw.split(",") if part.strip())
+
+
 #: Base URL of the remote FastAPI / Discord backend.
 REMOTE_BASE_URL: str = _env(
     "KITEZH_REMOTE_URL",
@@ -79,6 +86,22 @@ CONTEXT_ENDPOINT: str = f"{REMOTE_BASE_URL}/api/ai/context"
 REQUEST_TIMEOUT: float = float(os.environ.get("KITEZH_TIMEOUT", "10.0"))
 
 # ---------------------------------------------------------------------------
+# Capability pull connector
+# ---------------------------------------------------------------------------
+
+#: Enable external capability-pull connectors (optional).
+CAPABILITY_PULL_ENABLED: bool = _env_flag("KITEZH_CAPABILITY_PULL_ENABLED", default=False)
+
+#: Base URL for capability pull APIs such as knowledge retrieval.
+CAPABILITY_PULL_BASE_URL: str = _env("KITEZH_CAPABILITY_PULL_URL", default="")
+
+#: Auth token for capability pull requests.
+CAPABILITY_PULL_TOKEN: str = _env("KITEZH_CAPABILITY_PULL_TOKEN", default="")
+
+#: Endpoint path for knowledge retrieval capability lookups.
+CAPABILITY_KNOWLEDGE_PATH: str = _env("KITEZH_CAPABILITY_KNOWLEDGE_PATH", default="/api/knowledge/retrieve")
+
+# ---------------------------------------------------------------------------
 # Puppy-trap
 # ---------------------------------------------------------------------------
 
@@ -88,6 +111,55 @@ DISCORD_PUPPY_ID: str = _env(
     "DISCORD_PUPPY_ID",
     default="",
 )
+
+#: Enable Discord adapter lifecycle.
+DISCORD_ENABLED: bool = _env_flag("KITEZH_DISCORD_ENABLED", default=False)
+
+#: Discord bot token for API and gateway operations.
+DISCORD_BOT_TOKEN: str = _env("KITEZH_DISCORD_BOT_TOKEN", default="")
+
+#: Bot user ID for reliable mention detection in inbound message events.
+DISCORD_BOT_USER_ID: str = _env("KITEZH_DISCORD_BOT_USER_ID", default="")
+
+#: Operator Discord user ID used for runtime alerts (voice disable, etc).
+DISCORD_OPERATOR_USER_ID: str = _env("KITEZH_DISCORD_OPERATOR_USER_ID", default="")
+
+#: Number of messages pulled by default for context fetch operations.
+DISCORD_RECENT_MESSAGES_LIMIT: int = int(os.environ.get("KITEZH_DISCORD_RECENT_MESSAGES_LIMIT", "50"))
+
+#: Channels to poll for inbound message processing when gateway transport is not active.
+DISCORD_INBOUND_CHANNEL_IDS: tuple[str, ...] = _env_csv("KITEZH_DISCORD_INBOUND_CHANNEL_IDS")
+
+#: Poll cadence (seconds) for inbound message processing.
+DISCORD_INBOUND_POLL_SECONDS: float = float(os.environ.get("KITEZH_DISCORD_INBOUND_POLL_SECONDS", "2.0"))
+
+#: Enable Discord gateway runtime ingestion (recommended over REST polling).
+DISCORD_GATEWAY_ENABLED: bool = _env_flag("KITEZH_DISCORD_GATEWAY_ENABLED", default=False)
+
+#: Gateway intents bitmask for inbound message events.
+DISCORD_GATEWAY_INTENTS: int = int(os.environ.get("KITEZH_DISCORD_GATEWAY_INTENTS", "37377"))
+
+#: Reconnect backoff base delay for gateway runtime.
+DISCORD_GATEWAY_RECONNECT_BASE_SECONDS: float = float(
+    os.environ.get("KITEZH_DISCORD_GATEWAY_RECONNECT_BASE_SECONDS", "2.0")
+)
+
+#: Reconnect backoff max delay for gateway runtime.
+DISCORD_GATEWAY_RECONNECT_MAX_SECONDS: float = float(
+    os.environ.get("KITEZH_DISCORD_GATEWAY_RECONNECT_MAX_SECONDS", "30.0")
+)
+
+#: Maximum Discord outbound send attempts before dropping and logging.
+DISCORD_SEND_MAX_ATTEMPTS: int = int(os.environ.get("KITEZH_DISCORD_SEND_MAX_ATTEMPTS", "3"))
+
+#: Base retry delay (seconds) for outbound queue backoff.
+DISCORD_SEND_RETRY_BASE_SECONDS: float = float(os.environ.get("KITEZH_DISCORD_SEND_RETRY_BASE_SECONDS", "2.0"))
+
+#: Cap delay (seconds) for outbound queue backoff.
+DISCORD_SEND_RETRY_MAX_SECONDS: float = float(os.environ.get("KITEZH_DISCORD_SEND_RETRY_MAX_SECONDS", "12.0"))
+
+#: Keep local Discord action audit records for this many days.
+DISCORD_AUDIT_RETENTION_DAYS: int = int(os.environ.get("KITEZH_DISCORD_AUDIT_RETENTION_DAYS", "30"))
 
 # ---------------------------------------------------------------------------
 # Local workspace (sandboxed skill execution)
@@ -164,6 +236,11 @@ WEB_AUTOSTART: bool = _env_flag("KITEZH_WEB_AUTOSTART", default=False)
 #: TCP port the built-in web chat server listens on.
 WEB_PORT: int = int(os.environ.get("KITEZH_WEB_PORT", "7860"))
 
+#: Prefer the local llama.cpp agentic tool loop in web chat, even when
+#: KITEZH_REMOTE_ENABLED=1. When enabled, the remote bridge is used as a
+#: fallback path if local agentic execution fails.
+WEB_LOCAL_AGENTIC_FIRST: bool = _env_flag("KITEZH_WEB_LOCAL_AGENTIC_FIRST", default=True)
+
 #: Shared JSON file storing the latest visual/display state for local and remote faces.
 DISPLAY_STATE_PATH: str = os.environ.get(
     "KITEZH_DISPLAY_STATE_PATH",
@@ -207,6 +284,39 @@ AUDIO_LIBRARY_PATH: str = os.environ.get(
     "KITEZH_AUDIO_LIBRARY_PATH",
     os.path.join(WORKSPACE_PATH, "audio_library"),
 )
+
+#: Enable Discord voice call features when dependencies are present.
+DISCORD_VOICE_ENABLED: bool = _env_flag("KITEZH_DISCORD_VOICE_ENABLED", default=False)
+
+#: Auto-join voice channels when K.A.I. is mentioned in text chat.
+DISCORD_VOICE_AUTOJOIN_ON_MENTION: bool = _env_flag("KITEZH_DISCORD_VOICE_AUTOJOIN_ON_MENTION", default=True)
+
+#: Guardrail: allow one active voice channel at a time.
+DISCORD_VOICE_SINGLE_ACTIVE_CHANNEL: bool = _env_flag("KITEZH_DISCORD_VOICE_SINGLE_ACTIVE_CHANNEL", default=True)
+
+#: Rolling in-memory raw audio buffer length in seconds.
+DISCORD_VOICE_BUFFER_SECONDS: int = int(os.environ.get("KITEZH_DISCORD_VOICE_BUFFER_SECONDS", "30"))
+
+#: Voice decoder ingest frame duration in milliseconds.
+DISCORD_VOICE_FRAME_MS: int = int(os.environ.get("KITEZH_DISCORD_VOICE_FRAME_MS", "20"))
+
+#: Voice decoder incremental decode cadence in milliseconds.
+DISCORD_VOICE_DECODE_INTERVAL_MS: int = int(os.environ.get("KITEZH_DISCORD_VOICE_DECODE_INTERVAL_MS", "120"))
+
+#: Endpointing silence window in milliseconds.
+DISCORD_VOICE_ENDPOINT_SILENCE_MS: int = int(os.environ.get("KITEZH_DISCORD_VOICE_ENDPOINT_SILENCE_MS", "400"))
+
+#: Confidence threshold that triggers barge-in while TTS is playing.
+DISCORD_VOICE_BARGEIN_CONFIDENCE: float = float(os.environ.get("KITEZH_DISCORD_VOICE_BARGEIN_CONFIDENCE", "0.65"))
+
+#: Degraded-mode trigger latency threshold in milliseconds.
+DISCORD_VOICE_DECODE_WARN_MS: int = int(os.environ.get("KITEZH_DISCORD_VOICE_DECODE_WARN_MS", "900"))
+
+#: Enable the custom local STT engine integration.
+CUSTOM_STT_ENABLED: bool = _env_flag("KITEZH_CUSTOM_STT_ENABLED", default=False)
+
+#: Optional path to custom STT model/artifacts.
+CUSTOM_STT_MODEL_PATH: str = _env("KITEZH_CUSTOM_STT_MODEL_PATH", default="")
 
 # ---------------------------------------------------------------------------
 # Dual-homing / network roles

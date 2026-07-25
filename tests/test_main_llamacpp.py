@@ -1,12 +1,19 @@
 import unittest
 from unittest.mock import Mock, patch
+import importlib.util
 
-import requests
+REQUESTS_AVAILABLE = importlib.util.find_spec("requests") is not None
+if REQUESTS_AVAILABLE:
+    import requests
+    import llm_backends
+    import main
+else:
+    requests = None
+    llm_backends = None
+    main = None
 
-import llm_backends
-import main
 
-
+@unittest.skipUnless(REQUESTS_AVAILABLE, "requests package is required")
 class TestLlamaCppBackend(unittest.TestCase):
     def test_arg_parser_includes_llamacpp_backend(self) -> None:
         parser = main.build_arg_parser()
@@ -112,6 +119,7 @@ class TestLlamaCppBackend(unittest.TestCase):
         self.assertEqual(exit_code, 1)
 
 
+@unittest.skipUnless(REQUESTS_AVAILABLE, "requests package is required")
 class TestChatWithToolsLlamacpp(unittest.TestCase):
     """Tests for the agentic tool-calling loop."""
 

@@ -82,14 +82,18 @@ class TestConceptExtraction(unittest.TestCase):
 
 
 class TestKaiQuery(unittest.TestCase):
-    def test_awareness_metadata_reports_no_tools_when_remote_enabled(self) -> None:
-        with patch.object(web_ui.config, "REMOTE_ENABLED", True), patch.object(web_ui.config, "LLM_BACKEND", "llamacpp"):
+    def test_awareness_metadata_reports_tools_when_local_agentic_first(self) -> None:
+        with patch.object(web_ui.config, "REMOTE_ENABLED", True), \
+             patch.object(web_ui.config, "LLM_BACKEND", "ollama"), \
+             patch.object(web_ui.config, "WEB_LOCAL_AGENTIC_FIRST", True):
             metadata = web_ui._awareness_metadata()
-        self.assertEqual(metadata["tools_available"], [])
-        self.assertFalse(metadata["tool_calling_active"])
+        self.assertIn("write_workspace_file", metadata["tools_available"])
+        self.assertTrue(metadata["tool_calling_active"])
 
     def test_awareness_summary_mentions_unavailable_actions(self) -> None:
-        with patch.object(web_ui.config, "REMOTE_ENABLED", False), patch.object(web_ui.config, "LLM_BACKEND", "ollama"):
+        with patch.object(web_ui.config, "REMOTE_ENABLED", False), \
+             patch.object(web_ui.config, "LLM_BACKEND", "ollama"), \
+             patch.object(web_ui.config, "WEB_LOCAL_AGENTIC_FIRST", False):
             summary = web_ui._awareness_summary_for_prompt()
         self.assertIn("No callable tools are available in this runtime.", summary)
         self.assertIn("If asked about an unavailable action", summary)
@@ -98,6 +102,7 @@ class TestKaiQuery(unittest.TestCase):
         # Default LLM_BACKEND is "ollama" — should use local backend with system context.
         with patch.object(web_ui.config, "REMOTE_ENABLED", False), \
              patch.object(web_ui.config, "LLM_BACKEND", "ollama"), \
+             patch.object(web_ui.config, "WEB_LOCAL_AGENTIC_FIRST", False), \
              patch.object(web_ui, "send_to_backend", return_value="local reply") as send_to_backend:
             result = web_ui._query_kai("user-1", "User", "hello")
         self.assertEqual(result, "local reply")
@@ -109,6 +114,7 @@ class TestKaiQuery(unittest.TestCase):
     def test_query_kai_llamacpp_uses_agentic_path(self) -> None:
         with patch.object(web_ui.config, "REMOTE_ENABLED", False), \
              patch.object(web_ui.config, "LLM_BACKEND", "llamacpp"), \
+             patch.object(web_ui.config, "WEB_LOCAL_AGENTIC_FIRST", True), \
              patch.object(web_ui, "chat_with_tools_llamacpp", return_value="kai reply") as agentic, \
              patch.object(web_ui._web_memory, "synthesize_personality_context", return_value=""), \
              patch.object(web_ui._web_neuro, "emotion_snapshot", return_value={"label": "calm"}):
@@ -124,11 +130,43 @@ class TestKaiQuery(unittest.TestCase):
     def test_query_kai_llamacpp_returns_fallback_on_runtime_error(self) -> None:
         with patch.object(web_ui.config, "REMOTE_ENABLED", False), \
              patch.object(web_ui.config, "LLM_BACKEND", "llamacpp"), \
+             patch.object(web_ui.config, "WEB_LOCAL_AGENTIC_FIRST", True), \
              patch.object(web_ui, "chat_with_tools_llamacpp", side_effect=RuntimeError("offline")), \
              patch.object(web_ui._web_memory, "synthesize_personality_context", return_value=""), \
              patch.object(web_ui._web_neuro, "emotion_snapshot", return_value={"label": "neutral"}):
             result = web_ui._query_kai("user-3", "User", "hello")
         self.assertIn("unavailable", result.lower())
+
+    def test_query_kai_capability_question_explains_when_agentic_disabled(self) -> None:
+        with patch.object(web_ui.config, "REMOTE_ENABLED", True), \
+             patch.object(web_ui.config, "LLM_BACKEND", "ollama"), \
+             patch.object(web_ui.config, "WEB_LOCAL_AGENTIC_FIRST", False), \
+             patch.object(web_ui, "send_to_backend") as send_to_backend:
+            result = web_ui._query_kai("user-4", "User", "Are you able to make changes to the website?")
+        self.assertIn("cannot directly edit website files", result.lower())
+        self.assertIn("kitezh_web_local_agentic_first=1", result.lower())
+        send_to_backend.assert_not_called()
+
+    def test_query_kai_capability_question_confirms_when_tools_available(self) -> None:
+        with patch.object(web_ui.config, "REMOTE_ENABLED", True), \
+             patch.object(web_ui.config, "LLM_BACKEND", "ollama"), \
+             patch.object(web_ui.config, "WEB_LOCAL_AGENTIC_FIRST", True):
+            result = web_ui._query_kai("user-5", "User", "can you edit the website ui?")
+        self.assertIn("yes", result.lower())
+        self.assertIn("workspace/ui/index.html", result.lower())
+
+    def test_query_kai_remote_enabled_still_uses_local_agentic_first(self) -> None:
+        with patch.object(web_ui.config, "REMOTE_ENABLED", True), \
+             patch.object(web_ui.config, "LLM_BACKEND", "ollama"), \
+             patch.object(web_ui.config, "WEB_LOCAL_AGENTIC_FIRST", True), \
+             patch.object(web_ui, "chat_with_tools_llamacpp", return_value="agentic reply") as agentic, \
+             patch.object(web_ui, "requests") as requests_mod, \
+             patch.object(web_ui._web_memory, "synthesize_personality_context", return_value=""), \
+             patch.object(web_ui._web_neuro, "emotion_snapshot", return_value={"label": "focused"}):
+            result = web_ui._query_kai("user-6", "User", "hello")
+        self.assertEqual(result, "agentic reply")
+        agentic.assert_called_once()
+        requests_mod.post.assert_not_called()
 
 
 class TestSeedBelief(unittest.TestCase):

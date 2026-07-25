@@ -42,6 +42,8 @@ from skills.deep_memory import DeepMemoryCore
 from skills.neuro_affect import NeuroChemicalEngine
 from skills.cognitive_architect import LLMCognitiveBridge
 from skills.display_bridge import DisplayBridge, build_display_payload
+from skills.discord_adapter import DiscordAdapter
+from skills.discord_gateway import DiscordGatewayRuntime
 from skills.letta_bridge import build_letta_bridge
 from skills.awareness import build_runtime_awareness, format_runtime_awareness_block
 try:
@@ -232,6 +234,14 @@ def _estimate_segment_duration(text: str) -> float:
     return min(_MAX_SPOKEN_SEGMENT_SECONDS, max(_MIN_SPOKEN_SEGMENT_SECONDS, words * _SECONDS_PER_WORD_ESTIMATE))
 
 
+def _strip_discord_bot_mentions(content: str, bot_user_id: str) -> str:
+    cleaned = content
+    if bot_user_id:
+        cleaned = cleaned.replace(f"<@{bot_user_id}>", " ")
+        cleaned = cleaned.replace(f"<@!{bot_user_id}>", " ")
+    return " ".join(cleaned.split())
+
+
 def build_synthetic_splice_plan(text: str) -> list[dict[str, float | str]]:
     cleaned = text.strip()
     if not cleaned:
@@ -399,6 +409,121 @@ def main(argv: list[str] | None = None) -> int:
             audio_splicer = BumblebeeSplicer(sample_library_path=audio_library)
             logger.info("Audio splicer enabled using library path: %s", audio_library)
     display_bridge = DisplayBridge()
+    state_lock = threading.Lock()
+    discord_adapter = DiscordAdapter.from_config()
+    discord_gateway = DiscordGatewayRuntime.from_config(discord_adapter)
+
+    def _handle_discord_mention(event: dict[str, object]) -> None:
+        if str(event.get("event_type", "")) != "message_create":
+            return
+        content = _strip_discord_bot_mentions(
+            str(event.get("content", "")),
+            config.DISCORD_BOT_USER_ID,
+        )
+        if not content:
+            return
+
+        channel_id = str(event.get("channel_id", "")).strip()
+        message_id = str(event.get("message_id", "")).strip()
+        author_id = str(event.get("author_id", "")).strip() or "unknown"
+        author_name = str(event.get("author_name", "")).strip() or "Discord User"
+        payload = namespace_router(
+            platform="discord",
+            user_id=f"discord:{author_id}",
+            display_name=author_name,
+            content=content,
+        )
+
+        try:
+            with state_lock:
+                neuro.set_active_user(payload.user_id)
+                system_prompt = _build_cli_system_prompt(
+                    cognitive_bridge,
+                    neuro,
+                    backend=args.backend,
+                    user_id=payload.user_id,
+                )
+                local_reply = send_to_backend(
+                    payload.content,
+                    backend=args.backend,
+                    model=args.model,
+                    agent_id=args.agent_id,
+                    system=system_prompt,
+                )
+                sync_payload = {
+                    "user_id": payload.user_id,
+                    "platform": payload.platform,
+                    "content": payload.content,
+                    "metadata": payload.metadata,
+                    "context": {"reply": local_reply, "source": f"local:{args.backend}"},
+                }
+                cognitive_bridge.synchronize_attachment(sync_payload)
+                neuro.apply_stimulus(reward=0.08, success=0.1, user_id=payload.user_id)
+                cognitive_bridge.memory.update_relationship(
+                    payload.user_id,
+                    display_name=payload.display_name,
+                    trust_delta=0.03,
+                    attachment_delta=0.02,
+                    familiarity_delta=0.03,
+                    tension_delta=-0.01,
+                )
+                cognitive_bridge.memory.infer_preferences_from_text(payload.content, 0.02)
+                cognitive_bridge.memory.infer_preferences_from_text(local_reply, 0.01)
+                pad_coords = neuro.get_pad_coordinates()
+                engine.apply_impulse(pad_coords[0], pad_coords[1], pad_coords[2])
+                engine.tick()
+                _publish_display_state(
+                    display_bridge,
+                    cognitive_bridge,
+                    neuro,
+                    mode="active",
+                    message=f"Speaking with {payload.display_name} on Discord.",
+                )
+        except RuntimeError as exc:
+            logger.warning("Discord mention processing failed: %s", exc)
+            return
+        except Exception as exc:
+            logger.exception("Unexpected error while handling Discord mention: %s", exc)
+            return
+
+        if channel_id and message_id:
+            discord_adapter.reply_message(channel_id, message_id, local_reply)
+        elif channel_id:
+            discord_adapter.send_message(channel_id, local_reply)
+
+        if bool(event.get("voice_autojoin_requested", False)):
+            autojoin = discord_adapter.request_voice_autojoin(
+                guild_id=str(event.get("guild_id", "")),
+                user_id=author_id,
+            )
+            if autojoin.get("ok", False):
+                logger.info(
+                    "Discord voice auto-join target resolved for %s: guild=%s channel=%s (transport pending).",
+                    payload.display_name,
+                    autojoin.get("guild_id", ""),
+                    autojoin.get("channel_id", ""),
+                )
+            else:
+                logger.info(
+                    "Discord voice auto-join request from %s could not resolve target: %s",
+                    payload.display_name,
+                    autojoin.get("reason", "unknown reason"),
+                )
+
+    discord_adapter.register_mention_handler(_handle_discord_mention)
+    discord_adapter.start()
+    discord_gateway.start()
+    voice_status = discord_adapter.validate_voice_runtime()
+    if config.DISCORD_VOICE_ENABLED and not voice_status.get("ok", False):
+        reason = str(voice_status.get("reason", "voice runtime unavailable"))
+        discord_adapter.disable_voice(reason)
+        logger.warning("Discord voice features auto-disabled: %s", reason)
+        try:
+            notify = discord_adapter.notify_operator(f"K.A.I. voice auto-disabled: {reason}")
+            if not notify.get("ok", False):
+                logger.warning("Could not notify Discord operator: %s", notify.get("reason", "unknown reason"))
+        except Exception as exc:
+            logger.warning("Could not notify Discord operator: %s", exc)
     # Grab the Letta bridge that bootstrap wired into memory (may be None).
     letta_bridge = cognitive_bridge.memory._letta
     cognitive_bridge.refresh_self_narrative()
@@ -436,6 +561,8 @@ def main(argv: list[str] | None = None) -> int:
             print("─" * 60)
         except RuntimeError as exc:
             logger.error("%s", exc)
+            discord_gateway.stop()
+            discord_adapter.stop()
             if llama_server is not None:
                 llama_server.stop()
             return 1
@@ -448,7 +575,6 @@ def main(argv: list[str] | None = None) -> int:
         if not config.REMOTE_ENABLED:
             logger.info("Remote bridge disabled; interactive replies will use the %s backend.", args.backend)
         interaction_count = 0
-        state_lock = threading.Lock()
         stop_event = threading.Event()
         bridge_context = RemoteMochiiBridge() if config.REMOTE_ENABLED else nullcontext(None)
         with bridge_context as bridge:
@@ -614,6 +740,8 @@ def main(argv: list[str] | None = None) -> int:
                 stop_event.set()
                 autonomy_thread.join(timeout=config.AUTONOMY_SHUTDOWN_TIMEOUT_SECONDS)
                 _publish_display_state(display_bridge, cognitive_bridge, neuro, mode="idle", message="Kai is resting.")
+                discord_gateway.stop()
+                discord_adapter.stop()
                 if tapo_hub is not None:
                     tapo_hub.stop()
                 if llama_server is not None:
@@ -625,6 +753,9 @@ def main(argv: list[str] | None = None) -> int:
     # This line covers init-file mode (success) and any unexpected exception paths.
     if llama_server is not None:
         llama_server.stop()
+
+    discord_gateway.stop()
+    discord_adapter.stop()
 
     return 0
 

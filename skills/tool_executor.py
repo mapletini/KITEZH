@@ -221,6 +221,172 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "retrieve_knowledge_context",
+            "description": (
+                "Fetch optional external knowledge context via the configured "
+                "capability connector when available."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Knowledge lookup query.",
+                    },
+                    "top_k": {
+                        "type": "integer",
+                        "description": "Maximum number of records to request (default: 5).",
+                    },
+                },
+                "required": ["query"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "send_discord_message",
+            "description": "Queue a Discord channel message for delivery.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "channel_id": {"type": "string", "description": "Discord channel ID."},
+                    "content": {"type": "string", "description": "Message content."},
+                },
+                "required": ["channel_id", "content"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "reply_discord_message",
+            "description": "Queue a reply to a specific Discord message.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "channel_id": {"type": "string"},
+                    "message_id": {"type": "string"},
+                    "content": {"type": "string"},
+                },
+                "required": ["channel_id", "message_id", "content"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "discord_typing_indicator",
+            "description": "Send a typing indicator event to a Discord channel.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "channel_id": {"type": "string"},
+                },
+                "required": ["channel_id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "add_discord_reaction",
+            "description": "Queue a reaction on a Discord message.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "channel_id": {"type": "string"},
+                    "message_id": {"type": "string"},
+                    "emoji": {"type": "string"},
+                },
+                "required": ["channel_id", "message_id", "emoji"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "fetch_discord_recent_messages",
+            "description": "Fetch recent messages from a Discord channel.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "channel_id": {"type": "string"},
+                    "limit": {"type": "integer"},
+                },
+                "required": ["channel_id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_discord_member_profile",
+            "description": "Fetch profile details for a Discord guild member.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "guild_id": {"type": "string"},
+                    "user_id": {"type": "string"},
+                },
+                "required": ["guild_id", "user_id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "timeout_discord_member",
+            "description": "Apply a moderation timeout to a Discord member (approval token required).",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "guild_id": {"type": "string"},
+                    "user_id": {"type": "string"},
+                    "until_iso8601": {"type": "string"},
+                    "reason": {"type": "string"},
+                    "approval_token": {"type": "string"},
+                },
+                "required": ["guild_id", "user_id", "until_iso8601", "approval_token"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "delete_discord_message",
+            "description": "Delete a Discord message (approval token required).",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "channel_id": {"type": "string"},
+                    "message_id": {"type": "string"},
+                    "reason": {"type": "string"},
+                    "approval_token": {"type": "string"},
+                },
+                "required": ["channel_id", "message_id", "approval_token"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "issue_discord_approval_token",
+            "description": "Issue a one-time approval token for privileged Discord moderation actions.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "action_type": {"type": "string"},
+                    "actor": {"type": "string"},
+                    "ttl_seconds": {"type": "integer"},
+                },
+                "required": ["action_type", "actor"],
+            },
+        },
+    },
 ]
 
 
@@ -236,6 +402,8 @@ def make_tool_executor(
     tapo_hub: Any | None = None,
     display_bridge: Any | None = None,
     cognitive_bridge: Any | None = None,
+    capability_connector: Any | None = None,
+    discord_adapter: Any | None = None,
 ) -> Callable[[str, dict[str, Any]], str]:
     """
     Return a tool executor function bound to the given memory and neuro instances.
@@ -407,6 +575,169 @@ def make_tool_executor(
                 return exploration
             except Exception as exc:
                 return f"Error during curiosity exploration: {exc}"
+
+        # ── retrieve_knowledge_context ──────────────────────────────────────
+        if name == "retrieve_knowledge_context":
+            if capability_connector is None:
+                return "Capability connector unavailable."
+            query = str(arguments.get("query", "")).strip()
+            if not query:
+                return "Error: 'query' argument is required."
+            top_k = int(arguments.get("top_k", 5) or 5)
+            try:
+                result = capability_connector.lookup_knowledge(query=query, top_k=top_k)
+                return json.dumps(result, ensure_ascii=False, indent=2)
+            except Exception as exc:
+                return f"Knowledge retrieval failed: {exc}"
+
+        # ── Discord action tools ────────────────────────────────────────────
+        if name == "send_discord_message":
+            if discord_adapter is None:
+                return "Discord adapter unavailable."
+            channel_id = str(arguments.get("channel_id", "")).strip()
+            content = str(arguments.get("content", "")).strip()
+            if not channel_id or not content:
+                return "Error: 'channel_id' and 'content' are required."
+            return json.dumps(discord_adapter.send_message(channel_id, content), ensure_ascii=False, indent=2)
+
+        if name == "reply_discord_message":
+            if discord_adapter is None:
+                return "Discord adapter unavailable."
+            channel_id = str(arguments.get("channel_id", "")).strip()
+            message_id = str(arguments.get("message_id", "")).strip()
+            content = str(arguments.get("content", "")).strip()
+            if not channel_id or not message_id or not content:
+                return "Error: 'channel_id', 'message_id', and 'content' are required."
+            return json.dumps(
+                discord_adapter.reply_message(channel_id, message_id, content),
+                ensure_ascii=False,
+                indent=2,
+            )
+
+        if name == "discord_typing_indicator":
+            if discord_adapter is None:
+                return "Discord adapter unavailable."
+            channel_id = str(arguments.get("channel_id", "")).strip()
+            if not channel_id:
+                return "Error: 'channel_id' is required."
+            return json.dumps(discord_adapter.send_typing(channel_id), ensure_ascii=False, indent=2)
+
+        if name == "add_discord_reaction":
+            if discord_adapter is None:
+                return "Discord adapter unavailable."
+            channel_id = str(arguments.get("channel_id", "")).strip()
+            message_id = str(arguments.get("message_id", "")).strip()
+            emoji = str(arguments.get("emoji", "")).strip()
+            if not channel_id or not message_id or not emoji:
+                return "Error: 'channel_id', 'message_id', and 'emoji' are required."
+            return json.dumps(
+                discord_adapter.add_reaction(channel_id, message_id, emoji),
+                ensure_ascii=False,
+                indent=2,
+            )
+
+        if name == "fetch_discord_recent_messages":
+            if discord_adapter is None:
+                return "Discord adapter unavailable."
+            channel_id = str(arguments.get("channel_id", "")).strip()
+            limit = int(arguments.get("limit", 0) or 0)
+            if not channel_id:
+                return "Error: 'channel_id' is required."
+            try:
+                return json.dumps(
+                    discord_adapter.fetch_recent_messages(channel_id, limit=limit if limit > 0 else None),
+                    ensure_ascii=False,
+                    indent=2,
+                )
+            except Exception as exc:
+                return f"Discord fetch failed: {exc}"
+
+        if name == "get_discord_member_profile":
+            if discord_adapter is None:
+                return "Discord adapter unavailable."
+            guild_id = str(arguments.get("guild_id", "")).strip()
+            user_id = str(arguments.get("user_id", "")).strip()
+            if not guild_id or not user_id:
+                return "Error: 'guild_id' and 'user_id' are required."
+            try:
+                return json.dumps(discord_adapter.get_member_profile(guild_id, user_id), ensure_ascii=False, indent=2)
+            except Exception as exc:
+                return f"Discord profile lookup failed: {exc}"
+
+        if name == "timeout_discord_member":
+            if discord_adapter is None:
+                return "Discord adapter unavailable."
+            guild_id = str(arguments.get("guild_id", "")).strip()
+            user_id = str(arguments.get("user_id", "")).strip()
+            until_iso8601 = str(arguments.get("until_iso8601", "")).strip()
+            reason = str(arguments.get("reason", "")).strip()
+            approval_token = str(arguments.get("approval_token", "")).strip()
+            if not guild_id or not user_id or not until_iso8601 or not approval_token:
+                return "Error: 'guild_id', 'user_id', 'until_iso8601', and 'approval_token' are required."
+            try:
+                return json.dumps(
+                    discord_adapter.timeout_member(
+                        guild_id=guild_id,
+                        user_id=user_id,
+                        until_iso8601=until_iso8601,
+                        reason=reason,
+                        approval_token=approval_token,
+                    ),
+                    ensure_ascii=False,
+                    indent=2,
+                )
+            except Exception as exc:
+                return f"Discord timeout action failed: {exc}"
+
+        if name == "delete_discord_message":
+            if discord_adapter is None:
+                return "Discord adapter unavailable."
+            channel_id = str(arguments.get("channel_id", "")).strip()
+            message_id = str(arguments.get("message_id", "")).strip()
+            reason = str(arguments.get("reason", "")).strip()
+            approval_token = str(arguments.get("approval_token", "")).strip()
+            if not channel_id or not message_id or not approval_token:
+                return "Error: 'channel_id', 'message_id', and 'approval_token' are required."
+            try:
+                return json.dumps(
+                    discord_adapter.delete_message(
+                        channel_id=channel_id,
+                        message_id=message_id,
+                        reason=reason,
+                        approval_token=approval_token,
+                    ),
+                    ensure_ascii=False,
+                    indent=2,
+                )
+            except Exception as exc:
+                return f"Discord delete action failed: {exc}"
+
+        if name == "issue_discord_approval_token":
+            if discord_adapter is None:
+                return "Discord adapter unavailable."
+            action_type = str(arguments.get("action_type", "")).strip()
+            actor = str(arguments.get("actor", "")).strip()
+            ttl_seconds = int(arguments.get("ttl_seconds", 300) or 300)
+            if not action_type or not actor:
+                return "Error: 'action_type' and 'actor' are required."
+            try:
+                token = discord_adapter.issue_approval_token(
+                    action_type=action_type,
+                    actor=actor,
+                    ttl_seconds=ttl_seconds,
+                )
+                return json.dumps(
+                    {
+                        "ok": True,
+                        "action_type": action_type,
+                        "ttl_seconds": ttl_seconds,
+                        "approval_token": token,
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                )
+            except Exception as exc:
+                return f"Approval token issuance failed: {exc}"
 
         return f"Unknown tool: '{name}'."
 

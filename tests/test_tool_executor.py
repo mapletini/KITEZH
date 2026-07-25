@@ -164,6 +164,63 @@ class TestMakeToolExecutor(unittest.TestCase):
         result = executor("capture_camera_snapshot", {})
         self.assertIn("camera_name", result)
 
+    def test_retrieve_knowledge_context_without_connector_returns_unavailable(self) -> None:
+        result = self.executor("retrieve_knowledge_context", {"query": "what is kitezh"})
+        self.assertIn("unavailable", result.lower())
+
+    def test_retrieve_knowledge_context_uses_connector(self) -> None:
+        connector = MagicMock()
+        connector.lookup_knowledge.return_value = {
+            "query": "kai",
+            "count": 1,
+            "results": [{"title": "Kai", "content": "Context", "score": 0.9, "source": "kb"}],
+        }
+        from skills.tool_executor import make_tool_executor
+
+        executor = make_tool_executor(capability_connector=connector)
+        result = executor("retrieve_knowledge_context", {"query": "kai", "top_k": 3})
+        self.assertIn('"count": 1', result)
+        connector.lookup_knowledge.assert_called_once_with(query="kai", top_k=3)
+
+    def test_send_discord_message_uses_adapter(self) -> None:
+        adapter = MagicMock()
+        adapter.send_message.return_value = {"ok": True, "queued": True}
+        from skills.tool_executor import make_tool_executor
+
+        executor = make_tool_executor(discord_adapter=adapter)
+        result = executor("send_discord_message", {"channel_id": "123", "content": "hello"})
+        self.assertIn('"ok": true', result.lower())
+        adapter.send_message.assert_called_once_with("123", "hello")
+
+    def test_timeout_discord_member_requires_token(self) -> None:
+        adapter = MagicMock()
+        from skills.tool_executor import make_tool_executor
+
+        executor = make_tool_executor(discord_adapter=adapter)
+        result = executor(
+            "timeout_discord_member",
+            {"guild_id": "1", "user_id": "2", "until_iso8601": "2026-01-01T00:00:00Z"},
+        )
+        self.assertIn("approval_token", result)
+
+    def test_issue_discord_approval_token_uses_adapter(self) -> None:
+        adapter = MagicMock()
+        adapter.issue_approval_token.return_value = "tok"
+        from skills.tool_executor import make_tool_executor
+
+        executor = make_tool_executor(discord_adapter=adapter)
+        result = executor(
+            "issue_discord_approval_token",
+            {"action_type": "delete_message", "actor": "admin", "ttl_seconds": 120},
+        )
+        self.assertIn('"ok": true', result.lower())
+        self.assertIn('"approval_token": "tok"', result)
+        adapter.issue_approval_token.assert_called_once_with(
+            action_type="delete_message",
+            actor="admin",
+            ttl_seconds=120,
+        )
+
     # ── unknown tool ─────────────────────────────────────────────────────────
 
     def test_unknown_tool_returns_error_message(self) -> None:
@@ -183,7 +240,7 @@ class TestToolDefinitions(unittest.TestCase):
 
     def test_expected_number_of_tools_defined(self) -> None:
         from skills.tool_executor import TOOL_DEFINITIONS
-        self.assertEqual(len(TOOL_DEFINITIONS), 11)
+        self.assertEqual(len(TOOL_DEFINITIONS), 21)
 
     def test_reflect_on_memories_tool_defined(self) -> None:
         from skills.tool_executor import TOOL_DEFINITIONS
@@ -194,6 +251,25 @@ class TestToolDefinitions(unittest.TestCase):
         from skills.tool_executor import TOOL_DEFINITIONS
         names = [t["function"]["name"] for t in TOOL_DEFINITIONS]
         self.assertIn("explore_curiosity", names)
+
+    def test_retrieve_knowledge_context_tool_defined(self) -> None:
+        from skills.tool_executor import TOOL_DEFINITIONS
+        names = [t["function"]["name"] for t in TOOL_DEFINITIONS]
+        self.assertIn("retrieve_knowledge_context", names)
+
+    def test_discord_tools_defined(self) -> None:
+        from skills.tool_executor import TOOL_DEFINITIONS
+
+        names = [t["function"]["name"] for t in TOOL_DEFINITIONS]
+        self.assertIn("send_discord_message", names)
+        self.assertIn("reply_discord_message", names)
+        self.assertIn("discord_typing_indicator", names)
+        self.assertIn("add_discord_reaction", names)
+        self.assertIn("fetch_discord_recent_messages", names)
+        self.assertIn("get_discord_member_profile", names)
+        self.assertIn("timeout_discord_member", names)
+        self.assertIn("delete_discord_message", names)
+        self.assertIn("issue_discord_approval_token", names)
 
 
 class TestNewCognitiveTools(unittest.TestCase):

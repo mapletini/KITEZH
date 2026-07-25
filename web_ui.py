@@ -45,7 +45,10 @@ from llm_backends import send_to_backend, chat_with_tools_llamacpp
 from skills.cognitive_architect import LLMCognitiveBridge
 from skills.deep_memory import DeepMemoryCore
 from skills.display_bridge import DisplayBridge, build_display_payload
+from skills.discord_adapter import DiscordAdapter
+from skills.discord_gateway import DiscordGatewayRuntime
 from skills.filesystem import WorkspaceWriter, WorkspaceReader
+from skills.capability_connector import CapabilityConnector
 from skills.letta_bridge import build_letta_bridge
 from skills.neuro_affect import NeuroChemicalEngine
 from skills.tool_executor import TOOL_DEFINITIONS, make_tool_executor
@@ -78,6 +81,9 @@ _web_memory = DeepMemoryCore(workspace_path=config.WORKSPACE_PATH, letta_bridge=
 _web_neuro = NeuroChemicalEngine()
 _web_cognitive = LLMCognitiveBridge(_web_memory, _web_neuro)
 _display_bridge = DisplayBridge()
+_capability_connector = CapabilityConnector.from_config()
+_discord_adapter = DiscordAdapter.from_config()
+_discord_gateway = DiscordGatewayRuntime.from_config(_discord_adapter)
 _web_interaction_count = 0
 
 # Tapo camera hub — wired to the web-mode neuro engine.
@@ -306,6 +312,19 @@ _CONVERSATION_HISTORY_LIMIT = 20
 # Map DB channel names to OpenAI role names.
 _CHANNEL_TO_ROLE: dict[str, str] = {"user": "user", "kai": "assistant"}
 
+_WEBSITE_EDIT_HINT_RE = re.compile(
+    r"\b(website|web\s*site|web\s*ui|ui|index\.html|html|css|js|javascript|frontend|site)\b",
+    re.IGNORECASE,
+)
+_CHANGE_INTENT_RE = re.compile(
+    r"\b(change|edit|modify|update|rewrite|patch|fix|redesign|make)\b",
+    re.IGNORECASE,
+)
+_ABILITY_ASK_RE = re.compile(
+    r"\b(can\s+you|are\s+you\s+able|ability|capab|able\s+to)\b",
+    re.IGNORECASE,
+)
+
 
 def _tool_names() -> list[str]:
     names: list[str] = []
@@ -317,11 +336,13 @@ def _tool_names() -> list[str]:
     return names
 
 
+def _local_agentic_enabled() -> bool:
+    """Return True when web chat should use local llama.cpp agentic tooling."""
+    return bool(config.WEB_LOCAL_AGENTIC_FIRST or config.LLM_BACKEND == "llamacpp")
+
+
 def _active_tool_names() -> list[str]:
-    # Local tools are currently available only in the local llamacpp agentic path.
-    if config.REMOTE_ENABLED or config.LLM_BACKEND != "llamacpp":
-        return []
-    return _tool_names()
+    return _tool_names() if _local_agentic_enabled() else []
 
 
 def _camera_summary() -> dict[str, Any]:
@@ -349,11 +370,27 @@ def _runtime_awareness() -> Any:
     letta_role = _letta_role()
     letta_available = letta_role == "memory augmentation"
     display_state = _display_bridge.latest()
+    using_local_agentic = _local_agentic_enabled()
+    if using_local_agentic and config.REMOTE_ENABLED:
+        runtime_mode = "local agentic + remote fallback"
+        response_path = "local:llamacpp-tools -> remote /api/ai/context fallback"
+    elif using_local_agentic:
+        runtime_mode = "local agentic"
+        response_path = "local:llamacpp-tools"
+    elif config.REMOTE_ENABLED:
+        runtime_mode = "remote bridge"
+        response_path = "remote /api/ai/context"
+    else:
+        runtime_mode = "local backend"
+        response_path = f"local:{config.LLM_BACKEND}"
     return build_runtime_awareness(
         interface="web chat",
-        runtime_mode="remote bridge" if config.REMOTE_ENABLED else "local backend",
+        runtime_mode=runtime_mode,
         local_backend=config.LLM_BACKEND,
-        response_path="remote /api/ai/context" if config.REMOTE_ENABLED else f"local:{config.LLM_BACKEND}",
+        response_path=(
+            f"{response_path}; capability pull={'on' if _capability_connector.is_enabled() else 'off'}; "
+            f"discord={'on' if _discord_adapter.is_enabled() else 'off'}"
+        ),
         active_tools=_active_tool_names(),
         remote_enabled=config.REMOTE_ENABLED,
         letta_enabled=config.LETTA_ENABLED,
@@ -371,6 +408,86 @@ def _awareness_summary_for_prompt() -> str:
 
 def _awareness_metadata() -> dict[str, Any]:
     return _runtime_awareness().as_metadata()
+
+
+def _is_website_edit_capability_question(message: str) -> bool:
+    """Return True when a message asks whether Kai can edit website/UI files."""
+    if not message:
+        return False
+    asks_ability = bool(_ABILITY_ASK_RE.search(message))
+    mentions_web = bool(_WEBSITE_EDIT_HINT_RE.search(message))
+    mentions_change = bool(_CHANGE_INTENT_RE.search(message))
+    return mentions_web and (asks_ability or mentions_change)
+
+
+def _website_edit_capability_reply() -> str:
+    """Build a clear runtime-specific answer for website editing capability checks."""
+    tools = set(_active_tool_names())
+    can_edit = "write_workspace_file" in tools
+    if can_edit:
+        return (
+            "Yes - I can edit this site's files in the current runtime. "
+            "Tell me exactly what you want changed in workspace/ui/index.html "
+            "and I can apply it."
+        )
+
+    reasons: list[str] = []
+    if not _local_agentic_enabled():
+        reasons.append("local agentic tooling is disabled")
+    if config.LLM_BACKEND != "llamacpp" and not config.WEB_LOCAL_AGENTIC_FIRST:
+        reasons.append(f"local backend is '{config.LLM_BACKEND}' without tool-calling")
+    if not reasons:
+        reasons.append("no write-capable tools are currently exposed")
+    reason_text = "; ".join(reasons)
+    return (
+        "Not right now - I cannot directly edit website files in this runtime because "
+        f"{reason_text}. "
+        "To enable live file edits from chat, set KITEZH_WEB_LOCAL_AGENTIC_FIRST=1 "
+        "or use KITEZH_LLM_BACKEND=llamacpp, then restart the server. "
+        "I can still draft exact HTML/CSS/JS changes for you to apply manually."
+    )
+
+
+def _query_kai_local_agentic(user_id: str, content: str) -> str:
+    """Run a tool-capable local agentic pass via llama.cpp."""
+    system_prompt = _build_kai_system_prompt(user_id)
+    history = _build_conversation_history(user_id)
+    history.append({"role": "user", "content": content})
+    executor = make_tool_executor(
+        memory=_web_memory,
+        neuro=_web_neuro,
+        awareness_provider=_awareness_metadata,
+        tapo_hub=_tapo_hub,
+        display_bridge=_display_bridge,
+        cognitive_bridge=_web_cognitive,
+        capability_connector=_capability_connector,
+        discord_adapter=_discord_adapter,
+    )
+    return chat_with_tools_llamacpp(
+        history,
+        system=system_prompt,
+        tools=TOOL_DEFINITIONS,
+        tool_executor=executor,
+    )
+
+
+def _query_kai_remote(user_id: str, display_name: str, content: str) -> str:
+    payload = {
+        "platform": "web",
+        "user_id": user_id,
+        "display_name": display_name,
+        "content": content,
+        "clearance": "guest",
+        "is_puppy": False,
+        "metadata": {"kai_awareness": _awareness_metadata()},
+    }
+    response = requests.post(
+        config.CONTEXT_ENDPOINT,
+        json=payload,
+        timeout=config.REQUEST_TIMEOUT,
+    )
+    response.raise_for_status()
+    return _extract_kai_content(response.json())
 
 
 def _build_kai_system_prompt(
@@ -420,31 +537,37 @@ def _build_conversation_history(
 
 
 def _query_kai(user_id: str, display_name: str, content: str) -> str:
+    if _is_website_edit_capability_question(content):
+        return _website_edit_capability_reply()
+
+    if _local_agentic_enabled():
+        try:
+            return _query_kai_local_agentic(user_id, content)
+        except RuntimeError as exc:
+            logger.warning("K.A.I. local agentic call failed: %s", exc)
+            if config.REMOTE_ENABLED:
+                try:
+                    return _query_kai_remote(user_id, display_name, content)
+                except Exception as remote_exc:
+                    logger.warning("K.A.I. context bridge fallback failed: %s", remote_exc)
+                    return (
+                        "K.A.I. local agentic backend is unavailable and remote bridge fallback failed. "
+                        "Check llama-server and remote API connectivity, then try again."
+                    )
+            if config.LLM_BACKEND != "llamacpp":
+                try:
+                    system_prompt = _build_kai_system_prompt(user_id)
+                    return send_to_backend(
+                        content,
+                        backend=config.LLM_BACKEND,
+                        system=system_prompt,
+                    )
+                except RuntimeError as local_exc:
+                    logger.warning("K.A.I. local backend fallback failed: %s", local_exc)
+            return "K.A.I. local agentic backend unavailable right now. Check the configured llama-server and try again."
+
     if not config.REMOTE_ENABLED:
-        # For the llamacpp backend use the full agentic loop with tool calling.
-        if config.LLM_BACKEND == "llamacpp":
-            try:
-                system_prompt = _build_kai_system_prompt(user_id)
-                history = _build_conversation_history(user_id)
-                history.append({"role": "user", "content": content})
-                executor = make_tool_executor(
-                    memory=_web_memory,
-                    neuro=_web_neuro,
-                    awareness_provider=_awareness_metadata,
-                    tapo_hub=_tapo_hub,
-                    display_bridge=_display_bridge,
-                    cognitive_bridge=_web_cognitive,
-                )
-                return chat_with_tools_llamacpp(
-                    history,
-                    system=system_prompt,
-                    tools=TOOL_DEFINITIONS,
-                    tool_executor=executor,
-                )
-            except RuntimeError as exc:
-                logger.warning("K.A.I. llamacpp agentic call failed: %s", exc)
-                return "K.A.I. llamacpp backend unavailable right now. Check the configured llama-server and try again."
-        # Other backends (ollama, letta) use the simple single-prompt path.
+        # Non-agentic local backends (ollama, letta) use the simple single-prompt path.
         try:
             system_prompt = _build_kai_system_prompt(user_id)
             return send_to_backend(
@@ -456,23 +579,8 @@ def _query_kai(user_id: str, display_name: str, content: str) -> str:
             logger.warning("K.A.I. local backend failed: %s", exc)
             return "K.A.I. local backend unavailable right now. Check the configured LLM server and try again."
 
-    payload = {
-        "platform": "web",
-        "user_id": user_id,
-        "display_name": display_name,
-        "content": content,
-        "clearance": "guest",
-        "is_puppy": False,
-        "metadata": {"kai_awareness": _awareness_metadata()},
-    }
     try:
-        response = requests.post(
-            config.CONTEXT_ENDPOINT,
-            json=payload,
-            timeout=config.REQUEST_TIMEOUT,
-        )
-        response.raise_for_status()
-        return _extract_kai_content(response.json())
+        return _query_kai_remote(user_id, display_name, content)
     except Exception as exc:
         logger.warning("K.A.I. context bridge failed: %s", exc)
         return "K.A.I. bridge unavailable right now. Try again in a moment."
@@ -647,6 +755,8 @@ _init_chat_db()
 async def _lifespan(_: FastAPI):
     if _tapo_hub is not None:
         _tapo_hub.start()
+    _discord_adapter.start()
+    _discord_gateway.start()
     _web_cognitive.refresh_self_narrative()
     _publish_display_state("idle", "Kai is waking up.")
     background_task = asyncio.create_task(_dream_consolidation_daemon())
@@ -661,6 +771,8 @@ async def _lifespan(_: FastAPI):
         with suppress(asyncio.CancelledError):
             await autonomy_task
         _publish_display_state("idle", "Kai is resting.")
+        _discord_gateway.stop()
+        _discord_adapter.stop()
         if _tapo_hub is not None:
             _tapo_hub.stop()
 
