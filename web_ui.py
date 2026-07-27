@@ -47,6 +47,9 @@ from skills.deep_memory import DeepMemoryCore
 from skills.display_bridge import DisplayBridge, build_display_payload
 from skills.discord_adapter import DiscordAdapter
 from skills.discord_gateway import DiscordGatewayRuntime
+from skills.discord_voice_media import DiscordVoiceMediaTransport
+from skills.discord_voice_signaling import DiscordVoiceSignalingRuntime
+from skills.discord_voice_transport import DiscordVoiceTransportManager
 from skills.filesystem import WorkspaceWriter, WorkspaceReader
 from skills.capability_connector import CapabilityConnector
 from skills.letta_bridge import build_letta_bridge
@@ -61,6 +64,8 @@ except ImportError:
 logger = logging.getLogger(__name__)
 if TapoHub is None:
     logger.info("Optional TapoHub dependencies are unavailable; camera hub disabled in web mode.")
+for _warning in config.runtime_security_warnings():
+    logger.warning("Security warning: %s", _warning)
 
 # Path inside the workspace where K.A.I.'s UI template lives.
 UI_TEMPLATE_PATH = "ui/index.html"
@@ -84,6 +89,16 @@ _display_bridge = DisplayBridge()
 _capability_connector = CapabilityConnector.from_config()
 _discord_adapter = DiscordAdapter.from_config()
 _discord_gateway = DiscordGatewayRuntime.from_config(_discord_adapter)
+_voice_transport = DiscordVoiceTransportManager(
+    single_active_channel=config.DISCORD_VOICE_SINGLE_ACTIVE_CHANNEL,
+    bot_user_id=config.DISCORD_BOT_USER_ID,
+    self_mute=config.DISCORD_VOICE_SELF_MUTE,
+    self_deaf=config.DISCORD_VOICE_SELF_DEAF,
+)
+_voice_media = DiscordVoiceMediaTransport()
+_voice_transport.attach_media_transport(_voice_media)
+_discord_adapter.set_voice_transport_manager(_voice_transport)
+_voice_signaling = DiscordVoiceSignalingRuntime.from_config(_discord_gateway, _voice_transport)
 _web_interaction_count = 0
 
 # Tapo camera hub — wired to the web-mode neuro engine.
@@ -755,8 +770,10 @@ _init_chat_db()
 async def _lifespan(_: FastAPI):
     if _tapo_hub is not None:
         _tapo_hub.start()
+    _voice_transport.start()
     _discord_adapter.start()
     _discord_gateway.start()
+    _voice_signaling.start()
     _web_cognitive.refresh_self_narrative()
     _publish_display_state("idle", "Kai is waking up.")
     background_task = asyncio.create_task(_dream_consolidation_daemon())
@@ -771,6 +788,8 @@ async def _lifespan(_: FastAPI):
         with suppress(asyncio.CancelledError):
             await autonomy_task
         _publish_display_state("idle", "Kai is resting.")
+        _voice_transport.stop()
+        _voice_signaling.stop()
         _discord_gateway.stop()
         _discord_adapter.stop()
         if _tapo_hub is not None:

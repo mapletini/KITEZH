@@ -42,3 +42,27 @@ class TestEnvFlagHelper(unittest.TestCase):
         with patch.dict(os.environ, {"FLAG": "maybe"}, clear=False):
             value = config._env_flag("FLAG", default=True)
         self.assertTrue(value)
+
+
+class TestRuntimeSecurityWarnings(unittest.TestCase):
+    def test_warns_on_insecure_defaults(self) -> None:
+        with patch.object(config, "AI_KEY", "changeme"), \
+             patch.object(config, "COMMAND_SIGNING_SECRET", "changeme-signing-secret"), \
+             patch.object(config, "DISCORD_ENABLED", True), \
+             patch.object(config, "DISCORD_BOT_TOKEN", ""), \
+             patch.object(config, "DISCORD_VOICE_ENABLED", True), \
+             patch.object(config, "DISCORD_BOT_USER_ID", ""):
+            warnings = config.runtime_security_warnings()
+
+        self.assertGreaterEqual(len(warnings), 4)
+
+    def test_no_warnings_when_configured(self) -> None:
+        with patch.object(config, "AI_KEY", "secure-token"), \
+             patch.object(config, "COMMAND_SIGNING_SECRET", "secure-signing-secret"), \
+             patch.object(config, "DISCORD_ENABLED", True), \
+             patch.object(config, "DISCORD_BOT_TOKEN", "bot-token"), \
+             patch.object(config, "DISCORD_VOICE_ENABLED", True), \
+             patch.object(config, "DISCORD_BOT_USER_ID", "123"):
+            warnings = config.runtime_security_warnings()
+
+        self.assertEqual(warnings, [])

@@ -44,6 +44,9 @@ from skills.cognitive_architect import LLMCognitiveBridge
 from skills.display_bridge import DisplayBridge, build_display_payload
 from skills.discord_adapter import DiscordAdapter
 from skills.discord_gateway import DiscordGatewayRuntime
+from skills.discord_voice_media import DiscordVoiceMediaTransport
+from skills.discord_voice_signaling import DiscordVoiceSignalingRuntime
+from skills.discord_voice_transport import DiscordVoiceTransportManager
 from skills.letta_bridge import build_letta_bridge
 from skills.awareness import build_runtime_awareness, format_runtime_awareness_block
 try:
@@ -73,6 +76,8 @@ if TapoHub is None:
     logger.info("Optional TapoHub dependencies are unavailable; camera hub disabled.")
 if BumblebeeSplicer is None:
     logger.info("Optional audio splicer dependencies are unavailable; spliced audio disabled.")
+for _warning in config.runtime_security_warnings():
+    logger.warning("Security warning: %s", _warning)
 
 MAX_ARCHIVED_MESSAGE_LENGTH = 200
 # Maximum characters of a user message included in the Letta human-block profile summary.
@@ -412,6 +417,16 @@ def main(argv: list[str] | None = None) -> int:
     state_lock = threading.Lock()
     discord_adapter = DiscordAdapter.from_config()
     discord_gateway = DiscordGatewayRuntime.from_config(discord_adapter)
+    voice_transport = DiscordVoiceTransportManager(
+        single_active_channel=config.DISCORD_VOICE_SINGLE_ACTIVE_CHANNEL,
+        bot_user_id=config.DISCORD_BOT_USER_ID,
+        self_mute=config.DISCORD_VOICE_SELF_MUTE,
+        self_deaf=config.DISCORD_VOICE_SELF_DEAF,
+    )
+    voice_media = DiscordVoiceMediaTransport()
+    voice_transport.attach_media_transport(voice_media)
+    discord_adapter.set_voice_transport_manager(voice_transport)
+    voice_signaling = DiscordVoiceSignalingRuntime.from_config(discord_gateway, voice_transport)
 
     def _handle_discord_mention(event: dict[str, object]) -> None:
         if str(event.get("event_type", "")) != "message_create":
@@ -497,11 +512,13 @@ def main(argv: list[str] | None = None) -> int:
                 user_id=author_id,
             )
             if autojoin.get("ok", False):
+                queued_count = discord_gateway.sync_transport_voice_updates()
                 logger.info(
-                    "Discord voice auto-join target resolved for %s: guild=%s channel=%s (transport pending).",
+                    "Discord voice auto-join target resolved for %s: guild=%s channel=%s (gateway queued=%s).",
                     payload.display_name,
                     autojoin.get("guild_id", ""),
                     autojoin.get("channel_id", ""),
+                    queued_count > 0,
                 )
             else:
                 logger.info(
@@ -511,8 +528,10 @@ def main(argv: list[str] | None = None) -> int:
                 )
 
     discord_adapter.register_mention_handler(_handle_discord_mention)
+    voice_transport.start()
     discord_adapter.start()
     discord_gateway.start()
+    voice_signaling.start()
     voice_status = discord_adapter.validate_voice_runtime()
     if config.DISCORD_VOICE_ENABLED and not voice_status.get("ok", False):
         reason = str(voice_status.get("reason", "voice runtime unavailable"))
@@ -561,6 +580,8 @@ def main(argv: list[str] | None = None) -> int:
             print("─" * 60)
         except RuntimeError as exc:
             logger.error("%s", exc)
+            voice_transport.stop()
+            voice_signaling.stop()
             discord_gateway.stop()
             discord_adapter.stop()
             if llama_server is not None:
@@ -740,6 +761,8 @@ def main(argv: list[str] | None = None) -> int:
                 stop_event.set()
                 autonomy_thread.join(timeout=config.AUTONOMY_SHUTDOWN_TIMEOUT_SECONDS)
                 _publish_display_state(display_bridge, cognitive_bridge, neuro, mode="idle", message="Kai is resting.")
+                voice_transport.stop()
+                voice_signaling.stop()
                 discord_gateway.stop()
                 discord_adapter.stop()
                 if tapo_hub is not None:
@@ -754,6 +777,8 @@ def main(argv: list[str] | None = None) -> int:
     if llama_server is not None:
         llama_server.stop()
 
+    voice_transport.stop()
+    voice_signaling.stop()
     discord_gateway.stop()
     discord_adapter.stop()
 

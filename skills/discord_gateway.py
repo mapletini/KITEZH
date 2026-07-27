@@ -48,6 +48,8 @@ class DiscordGatewayRuntime:
         self._last_sequence: int | None = None
         self._ready = False
         self._availability_reason = ""
+        self._outbound_lock = threading.Lock()
+        self._outbound_queue: list[dict[str, Any]] = []
 
     @classmethod
     def from_config(cls, adapter: DiscordAdapter) -> "DiscordGatewayRuntime":
@@ -74,7 +76,84 @@ class DiscordGatewayRuntime:
             "last_sequence": self._last_sequence,
             "availability_reason": self._availability_reason,
             "intents": self._runtime.intents,
+            "outbound_queue_depth": len(self._outbound_queue),
         }
+
+    def request_voice_state_update(
+        self,
+        *,
+        guild_id: str,
+        channel_id: str | None,
+        self_mute: bool = False,
+        self_deaf: bool = False,
+    ) -> dict[str, Any]:
+        if not self.is_enabled():
+            return {"ok": False, "reason": "discord gateway disabled or missing token"}
+        payload = self._build_voice_state_update_payload(
+            guild_id=guild_id,
+            channel_id=channel_id,
+            self_mute=self_mute,
+            self_deaf=self_deaf,
+        )
+        with self._outbound_lock:
+            self._outbound_queue.append(payload)
+        return {"ok": True, "queued": True, "op": payload.get("op"), "reason": "voice state update queued"}
+
+    def sync_transport_voice_updates(self) -> int:
+        """Move pending transport-originated OP4 updates into the gateway outbound queue."""
+        if not hasattr(self._adapter, "pop_pending_voice_state_update"):
+            return 0
+        moved = 0
+        while True:
+            pending = self._adapter.pop_pending_voice_state_update()
+            if not isinstance(pending, dict):
+                break
+            payload = self._build_voice_state_update_payload(
+                guild_id=str(pending.get("guild_id", "")),
+                channel_id=str(pending.get("channel_id", "")) or None,
+                self_mute=bool(pending.get("self_mute", False)),
+                self_deaf=bool(pending.get("self_deaf", False)),
+            )
+            with self._outbound_lock:
+                self._outbound_queue.append(payload)
+            moved += 1
+        return moved
+
+    def process_voice_gateway_payload(self, payload: dict[str, Any]) -> bool:
+        """Forward voice websocket session-description payloads to the adapter.
+
+        Discord voice websocket emits SESSION_DESCRIPTION on opcode 4 with
+        payload shape: {"op": 4, "d": {"mode": "...", "secret_key": [...]}}.
+        This helper accepts that frame directly and also supports an event-like
+        envelope using t=VOICE_SESSION_DESCRIPTION for testability.
+        """
+        if not isinstance(payload, dict):
+            return False
+
+        description: dict[str, Any] | None = None
+
+        op_value = payload.get("op")
+        try:
+            op = int(op_value) if op_value is not None else -1
+        except Exception:
+            op = -1
+        data = payload.get("d")
+        if op == 4 and isinstance(data, dict):
+            description = data
+        else:
+            event_type = str(payload.get("t", "")).strip().upper()
+            if event_type == "VOICE_SESSION_DESCRIPTION" and isinstance(data, dict):
+                description = data
+            elif "mode" in payload:
+                description = payload
+
+        if not isinstance(description, dict):
+            return False
+        if "mode" not in description:
+            return False
+        if not hasattr(self._adapter, "process_voice_session_description"):
+            return False
+        return bool(self._adapter.process_voice_session_description(description))
 
     def start(self) -> None:
         if not self.is_enabled():
@@ -134,11 +213,41 @@ class DiscordGatewayRuntime:
                     self._send_heartbeat(ws)
                     next_heartbeat = now + (heartbeat_ms / 1000.0)
 
+                self.sync_transport_voice_updates()
+                self._drain_outbound(ws)
+
                 raw = ws.recv(timeout=1)
                 if raw is None:
                     continue
                 payload = self._parse_payload(raw)
                 self._handle_gateway_payload(payload, ws=ws)
+
+    @staticmethod
+    def _build_voice_state_update_payload(
+        *,
+        guild_id: str,
+        channel_id: str | None,
+        self_mute: bool,
+        self_deaf: bool,
+    ) -> dict[str, Any]:
+        return {
+            "op": 4,
+            "d": {
+                "guild_id": str(guild_id).strip(),
+                "channel_id": str(channel_id).strip() if channel_id else None,
+                "self_mute": bool(self_mute),
+                "self_deaf": bool(self_deaf),
+            },
+        }
+
+    def _drain_outbound(self, ws: Any) -> None:
+        batch: list[dict[str, Any]] = []
+        with self._outbound_lock:
+            if self._outbound_queue:
+                batch = list(self._outbound_queue)
+                self._outbound_queue.clear()
+        for payload in batch:
+            ws.send(json.dumps(payload, separators=(",", ":")))
 
     def _fetch_gateway_url(self) -> str:
         req = urllib.request.Request(
@@ -218,3 +327,10 @@ class DiscordGatewayRuntime:
             return
         if event_type == "VOICE_STATE_UPDATE":
             self._adapter.process_voice_state_update(data)
+            return
+        if event_type == "VOICE_SERVER_UPDATE":
+            self._adapter.process_voice_server_update(data)
+            return
+        if event_type == "VOICE_SESSION_DESCRIPTION":
+            if hasattr(self._adapter, "process_voice_session_description"):
+                self._adapter.process_voice_session_description(data)

@@ -4,11 +4,26 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from fastapi import HTTPException
+try:
+    from fastapi import HTTPException
+except Exception:  # pragma: no cover - dependency-optional test environments
+    HTTPException = None
 
-import web_ui
+try:
+    import requests as _requests
+except Exception:  # pragma: no cover - dependency-optional test environments
+    _requests = None
+
+_HAS_WEB_DEPS = HTTPException is not None and _requests is not None
+_skip_web_deps = unittest.skipUnless(_HAS_WEB_DEPS, "fastapi and requests packages are required")
+
+if _HAS_WEB_DEPS:
+    import web_ui
+else:  # pragma: no cover - dependency-optional test environments
+    web_ui = None
 
 
+@_skip_web_deps
 class TestLanAdminGuard(unittest.TestCase):
     def test_guard_disabled_when_no_cidr_configured(self) -> None:
         """When LAN_CIDR is empty the guard is a no-op — all IPs are allowed."""
@@ -57,6 +72,7 @@ class TestLanAdminGuard(unittest.TestCase):
             self.assertFalse(web_ui._is_admin_allowed("192.168.1.1"))
 
 
+@_skip_web_deps
 class TestConceptExtraction(unittest.TestCase):
     def test_extract_concepts_filters_stopwords_and_duplicates(self) -> None:
         concepts = web_ui._extract_concepts("The memory memory graph syncs kai memory state quickly.")
@@ -81,6 +97,7 @@ class TestConceptExtraction(unittest.TestCase):
         self.assertEqual(result, {"mode": "idle", "version": 1})
 
 
+@_skip_web_deps
 class TestKaiQuery(unittest.TestCase):
     def test_awareness_metadata_reports_tools_when_local_agentic_first(self) -> None:
         with patch.object(web_ui.config, "REMOTE_ENABLED", True), \
@@ -169,6 +186,7 @@ class TestKaiQuery(unittest.TestCase):
         requests_mod.post.assert_not_called()
 
 
+@_skip_web_deps
 class TestSeedBelief(unittest.TestCase):
     def test_seed_belief_rejects_empty_fields(self) -> None:
         with self.assertRaises(HTTPException) as ctx:
@@ -186,6 +204,7 @@ class TestSeedBelief(unittest.TestCase):
         self.assertEqual(result, {"status": "ok"})
 
 
+@_skip_web_deps
 class TestPasscodeHashing(unittest.TestCase):
     """Use minimal scrypt parameters so these tests run in any memory environment."""
 
@@ -233,6 +252,7 @@ class TestPasscodeHashing(unittest.TestCase):
         self.assertNotEqual(h1, h2)
 
 
+@_skip_web_deps
 class TestPersistentIdentity(unittest.TestCase):
     """Tests for _lookup_or_create_identity using an isolated in-memory DB."""
 
@@ -304,6 +324,7 @@ class TestPersistentIdentity(unittest.TestCase):
         self.assertNotEqual(tid1, tid2)
 
 
+@_skip_web_deps
 class TestAuthJoinEndpoint(unittest.TestCase):
     """Integration tests for the /api/auth/join HTTP endpoint."""
 

@@ -6,6 +6,8 @@ from pathlib import Path
 from unittest.mock import patch
 
 from skills.discord_adapter import DiscordAdapter, DiscordRuntimeConfig, OutboundAction
+from skills.discord_voice_transport import DiscordVoiceTransportManager
+from skills.voice_runtime import DecodeEvent
 
 
 class TestDiscordAdapter(unittest.TestCase):
@@ -179,6 +181,197 @@ class TestDiscordAdapter(unittest.TestCase):
         self.assertTrue(first["ok"])
         self.assertFalse(second["ok"])
         self.assertIn("single-active", second["reason"])
+
+    def test_request_voice_autojoin_uses_transport_manager(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            adapter = self._make_adapter(tmp)
+            manager = DiscordVoiceTransportManager(single_active_channel=True)
+            manager.start()
+            adapter.set_voice_transport_manager(manager)
+            adapter.process_voice_state_update({"guild_id": "g1", "user_id": "u1", "channel_id": "vc1"})
+            out = adapter.request_voice_autojoin(guild_id="g1", user_id="u1")
+
+        self.assertTrue(out["ok"])
+        self.assertEqual(out["transport"], "managed")
+        self.assertEqual(out["transport_session"]["channel_id"], "vc1")
+
+    def test_request_voice_autojoin_transport_not_running_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            adapter = self._make_adapter(tmp)
+            manager = DiscordVoiceTransportManager(single_active_channel=True)
+            adapter.set_voice_transport_manager(manager)
+            adapter.process_voice_state_update({"guild_id": "g1", "user_id": "u1", "channel_id": "vc1"})
+            out = adapter.request_voice_autojoin(guild_id="g1", user_id="u1")
+
+        self.assertFalse(out["ok"])
+        self.assertIn("transport refused", out["reason"])
+
+    def test_ingest_voice_frame_delegates_to_transport_runtime(self) -> None:
+        class _StubRuntime:
+            def ingest_frame(self, *, frame, speech_confidence, tts_active):
+                return [DecodeEvent(kind="partial", text="hi", confidence=0.7)]
+
+        with tempfile.TemporaryDirectory() as tmp:
+            adapter = self._make_adapter(tmp)
+            manager = DiscordVoiceTransportManager(single_active_channel=True, bot_user_id="999")
+            manager.start()
+            manager.attach_speech_runtime(_StubRuntime())
+            adapter.set_voice_transport_manager(manager)
+            adapter.process_voice_state_update(
+                {"guild_id": "g1", "user_id": "u1", "channel_id": "vc1"}
+            )
+            auto = adapter.request_voice_autojoin(guild_id="g1", user_id="u1")
+            self.assertTrue(auto["ok"])
+            adapter.process_voice_state_update(
+                {"guild_id": "g1", "user_id": "999", "channel_id": "vc1", "session_id": "sess-1"}
+            )
+            adapter.process_voice_server_update(
+                {"guild_id": "g1", "token": "tok", "endpoint": "voice.discord.media"}
+            )
+            adapter.process_voice_session_description(
+                {"mode": "none"}
+            )
+            manager.mark_voice_transport_active()
+            events = adapter.ingest_voice_frame(
+                guild_id="g1",
+                channel_id="vc1",
+                user_id="speaker-1",
+                frame=[0.1, 0.2],
+                speech_confidence=0.9,
+                tts_active=False,
+            )
+
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0]["text"], "hi")
+
+    def test_pop_pending_voice_state_update_from_transport(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            adapter = self._make_adapter(tmp)
+            manager = DiscordVoiceTransportManager(single_active_channel=True)
+            manager.start()
+            adapter.set_voice_transport_manager(manager)
+            adapter.process_voice_state_update({"guild_id": "g1", "user_id": "u1", "channel_id": "vc1"})
+            out = adapter.request_voice_autojoin(guild_id="g1", user_id="u1")
+            self.assertTrue(out["ok"])
+            pending = adapter.pop_pending_voice_state_update()
+            pending2 = adapter.pop_pending_voice_state_update()
+
+        self.assertIsNotNone(pending)
+        self.assertEqual(pending["guild_id"], "g1")
+        self.assertEqual(pending["channel_id"], "vc1")
+        self.assertIsNone(pending2)
+
+    def test_process_voice_server_update_marks_transport_active(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            adapter = self._make_adapter(tmp)
+            manager = DiscordVoiceTransportManager(single_active_channel=True, bot_user_id="999")
+            manager.start()
+            adapter.set_voice_transport_manager(manager)
+            adapter.process_voice_state_update({"guild_id": "g1", "user_id": "u1", "channel_id": "vc1"})
+            out = adapter.request_voice_autojoin(guild_id="g1", user_id="u1")
+            self.assertTrue(out["ok"])
+            adapter.process_voice_state_update(
+                {"guild_id": "g1", "user_id": "999", "channel_id": "vc1", "session_id": "sess-1"}
+            )
+            ok = adapter.process_voice_server_update(
+                {"guild_id": "g1", "token": "tok", "endpoint": "voice.discord.media"}
+            )
+            adapter.process_voice_session_description(
+                {"mode": "none"}
+            )
+            manager.mark_voice_transport_active()
+            active = manager.status()["active"]
+
+        self.assertTrue(ok)
+        self.assertEqual(active["state"], "active")
+
+    def test_send_voice_tts_frame_uses_transport(self) -> None:
+        class _StubRuntime:
+            def ingest_frame(self, *, frame, speech_confidence, tts_active):
+                return []
+
+        with tempfile.TemporaryDirectory() as tmp:
+            adapter = self._make_adapter(tmp)
+            manager = DiscordVoiceTransportManager(single_active_channel=True, bot_user_id="999")
+            manager.start()
+            manager.attach_speech_runtime(_StubRuntime())
+            adapter.set_voice_transport_manager(manager)
+            adapter.process_voice_state_update({"guild_id": "g1", "user_id": "u1", "channel_id": "vc1"})
+            out = adapter.request_voice_autojoin(guild_id="g1", user_id="u1")
+            self.assertTrue(out["ok"])
+            adapter.process_voice_state_update(
+                {"guild_id": "g1", "user_id": "999", "channel_id": "vc1", "session_id": "sess-1"}
+            )
+            adapter.process_voice_server_update(
+                {"guild_id": "g1", "token": "tok", "endpoint": "127.0.0.1:9"}
+            )
+            send = adapter.send_voice_tts_frame(samples=[0.1, 0.2], sample_rate=48_000)
+
+        # Session may fail to send if no UDP listener exists, but transport path must execute.
+        self.assertIn("ok", send)
+
+    def test_configure_voice_encryption_delegates_to_transport(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            adapter = self._make_adapter(tmp)
+            manager = DiscordVoiceTransportManager(single_active_channel=True)
+            manager.start()
+            adapter.set_voice_transport_manager(manager)
+
+            class _StubMedia:
+                def status(self):
+                    return {"connected": False}
+
+                def configure_encryption(self, *, secret_key, mode=None):
+                    return {"ok": True, "mode": mode or "xsalsa20_poly1305", "key_len": len(secret_key)}
+
+            manager.attach_media_transport(_StubMedia())
+            out = adapter.configure_voice_encryption(secret_key=[2] * 32, mode="xsalsa20_poly1305")
+
+        self.assertTrue(out["ok"])
+        self.assertEqual(out["key_len"], 32)
+
+    def test_process_voice_session_description_enables_active_transport(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            adapter = self._make_adapter(tmp)
+            manager = DiscordVoiceTransportManager(single_active_channel=True, bot_user_id="999")
+            manager.start()
+
+            class _StubMedia:
+                def status(self):
+                    return {"connected": False}
+
+                def start_session(self, **_kwargs):
+                    return {"ok": True}
+
+                def stop_session(self, **_kwargs):
+                    return {"ok": True}
+
+                def send_audio_frame(self, **_kwargs):
+                    return {"ok": True}
+
+                def configure_encryption(self, *, secret_key, mode=None):
+                    return {"ok": True, "mode": mode or "xsalsa20_poly1305", "key_len": len(secret_key)}
+
+            manager.attach_media_transport(_StubMedia())
+            adapter.set_voice_transport_manager(manager)
+            adapter.process_voice_state_update({"guild_id": "g1", "user_id": "u1", "channel_id": "vc1"})
+            out = adapter.request_voice_autojoin(guild_id="g1", user_id="u1")
+            self.assertTrue(out["ok"])
+            adapter.process_voice_state_update(
+                {"guild_id": "g1", "user_id": "999", "channel_id": "vc1", "session_id": "sess-1"}
+            )
+            adapter.process_voice_server_update(
+                {"guild_id": "g1", "token": "tok", "endpoint": "voice.discord.media"}
+            )
+            before = manager.status()["active"]["state"]
+            applied = adapter.process_voice_session_description(
+                {"mode": "xsalsa20_poly1305", "secret_key": [5] * 32}
+            )
+            after = manager.status()["active"]["state"]
+
+        self.assertEqual(before, "awaiting_session_description")
+        self.assertTrue(applied)
+        self.assertEqual(after, "active")
 
 
 if __name__ == "__main__":

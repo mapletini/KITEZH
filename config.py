@@ -72,6 +72,20 @@ INSECURE_SIGNING_SECRETS: tuple[str, ...] = (
     "changeme-signing-secret",
 )
 
+
+def runtime_security_warnings() -> list[str]:
+    """Return startup security warnings for clearly unsafe runtime settings."""
+    warnings: list[str] = []
+    if AI_KEY.strip() in INSECURE_AI_KEYS:
+        warnings.append("KITEZH_AI_KEY is using an insecure default value")
+    if COMMAND_SIGNING_SECRET.strip() in INSECURE_SIGNING_SECRETS:
+        warnings.append("KITEZH_COMMAND_SIGNING_SECRET is using an insecure default value")
+    if DISCORD_ENABLED and not DISCORD_BOT_TOKEN.strip():
+        warnings.append("Discord runtime enabled without KITEZH_DISCORD_BOT_TOKEN")
+    if DISCORD_ENABLED and DISCORD_VOICE_ENABLED and not DISCORD_BOT_USER_ID.strip():
+        warnings.append("Discord voice enabled without KITEZH_DISCORD_BOT_USER_ID")
+    return warnings
+
 #: Secret used to sign command envelopes.
 COMMAND_SIGNING_SECRET: str = _env(
     "KITEZH_COMMAND_SIGNING_SECRET",
@@ -288,11 +302,60 @@ AUDIO_LIBRARY_PATH: str = os.environ.get(
 #: Enable Discord voice call features when dependencies are present.
 DISCORD_VOICE_ENABLED: bool = _env_flag("KITEZH_DISCORD_VOICE_ENABLED", default=False)
 
+#: Enable dedicated Discord voice websocket signaling runtime.
+DISCORD_VOICE_SIGNALING_ENABLED: bool = _env_flag(
+    "KITEZH_DISCORD_VOICE_SIGNALING_ENABLED",
+    default=True,
+)
+
+#: Base reconnect backoff (seconds) for voice signaling websocket runtime.
+DISCORD_VOICE_SIGNALING_RECONNECT_BASE_SECONDS: float = float(
+    os.environ.get("KITEZH_DISCORD_VOICE_SIGNALING_RECONNECT_BASE_SECONDS", "2.0")
+)
+
+#: Max reconnect backoff (seconds) for voice signaling websocket runtime.
+DISCORD_VOICE_SIGNALING_RECONNECT_MAX_SECONDS: float = float(
+    os.environ.get("KITEZH_DISCORD_VOICE_SIGNALING_RECONNECT_MAX_SECONDS", "30.0")
+)
+
+#: Idle poll cadence (seconds) while waiting for an active voice session to signal.
+DISCORD_VOICE_SIGNALING_IDLE_POLL_SECONDS: float = float(
+    os.environ.get("KITEZH_DISCORD_VOICE_SIGNALING_IDLE_POLL_SECONDS", "0.5")
+)
+
 #: Auto-join voice channels when K.A.I. is mentioned in text chat.
 DISCORD_VOICE_AUTOJOIN_ON_MENTION: bool = _env_flag("KITEZH_DISCORD_VOICE_AUTOJOIN_ON_MENTION", default=True)
 
 #: Guardrail: allow one active voice channel at a time.
 DISCORD_VOICE_SINGLE_ACTIVE_CHANNEL: bool = _env_flag("KITEZH_DISCORD_VOICE_SINGLE_ACTIVE_CHANNEL", default=True)
+
+#: Join requested voice channels with self mute enabled.
+DISCORD_VOICE_SELF_MUTE: bool = _env_flag("KITEZH_DISCORD_VOICE_SELF_MUTE", default=False)
+
+#: Join requested voice channels with self deaf enabled.
+DISCORD_VOICE_SELF_DEAF: bool = _env_flag("KITEZH_DISCORD_VOICE_SELF_DEAF", default=False)
+
+#: Default UDP port used for Discord voice media sockets when endpoint lacks explicit port.
+DISCORD_VOICE_UDP_DEFAULT_PORT: int = int(os.environ.get("KITEZH_DISCORD_VOICE_UDP_DEFAULT_PORT", "50000"))
+
+#: Socket connect timeout in seconds for Discord voice UDP setup.
+DISCORD_VOICE_UDP_CONNECT_TIMEOUT_SECONDS: float = float(
+    os.environ.get("KITEZH_DISCORD_VOICE_UDP_CONNECT_TIMEOUT_SECONDS", "3.0")
+)
+
+#: Socket send timeout in seconds for Discord voice UDP packets.
+DISCORD_VOICE_UDP_SEND_TIMEOUT_SECONDS: float = float(
+    os.environ.get("KITEZH_DISCORD_VOICE_UDP_SEND_TIMEOUT_SECONDS", "1.0")
+)
+
+#: RTP payload type used for outgoing PCM packets in the lightweight UDP transport.
+DISCORD_VOICE_RTP_PAYLOAD_TYPE: int = int(os.environ.get("KITEZH_DISCORD_VOICE_RTP_PAYLOAD_TYPE", "120"))
+
+#: Voice payload encryption mode for UDP transport.
+DISCORD_VOICE_ENCRYPTION_MODE: str = os.environ.get(
+    "KITEZH_DISCORD_VOICE_ENCRYPTION_MODE",
+    "xsalsa20_poly1305",
+).strip() or "xsalsa20_poly1305"
 
 #: Rolling in-memory raw audio buffer length in seconds.
 DISCORD_VOICE_BUFFER_SECONDS: int = int(os.environ.get("KITEZH_DISCORD_VOICE_BUFFER_SECONDS", "30"))

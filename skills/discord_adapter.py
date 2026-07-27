@@ -98,6 +98,7 @@ class DiscordAdapter:
         self._voice_presence_by_user: dict[tuple[str, str], str] = {}
         self._active_voice_guild_id = ""
         self._active_voice_channel_id = ""
+        self._voice_transport: Any | None = None
         self._voice_runtime_available = True
         self._voice_disable_reason = ""
         self._db_path = Path(config.WORKSPACE_PATH) / "discord_runtime.db"
@@ -155,6 +156,7 @@ class DiscordAdapter:
             "active_voice_guild_id": self._active_voice_guild_id,
             "active_voice_channel_id": self._active_voice_channel_id,
             "tracked_voice_members": len(self._voice_presence_by_user),
+            "voice_transport": self._voice_transport.status() if self._voice_transport is not None else None,
             "queue_size": self._queue.qsize(),
             "audit_retention_days": self._runtime.audit_retention_days,
         }
@@ -191,6 +193,9 @@ class DiscordAdapter:
     def register_mention_handler(self, handler: Callable[[dict[str, Any]], None]) -> None:
         with self._lock:
             self._mention_handlers.append(handler)
+
+    def set_voice_transport_manager(self, manager: Any | None) -> None:
+        self._voice_transport = manager
 
     def poll_inbound_once(self) -> int:
         """Poll configured channels once and emit normalized message events."""
@@ -239,6 +244,12 @@ class DiscordAdapter:
             return False
 
         key = (guild_id, user_id)
+        delegated = False
+        if self._voice_transport is not None and hasattr(self._voice_transport, "process_voice_state_update"):
+            try:
+                delegated = bool(self._voice_transport.process_voice_state_update(payload))
+            except Exception:
+                delegated = False
         with self._lock:
             if channel_id:
                 self._voice_presence_by_user[key] = channel_id
@@ -251,6 +262,85 @@ class DiscordAdapter:
                     self._active_voice_guild_id = ""
                     self._active_voice_channel_id = ""
         return True
+
+    def process_voice_server_update(self, payload: dict[str, Any]) -> bool:
+        """Forward VOICE_SERVER_UPDATE payloads to voice transport signaling state."""
+        if self._voice_transport is None or not hasattr(self._voice_transport, "process_voice_server_update"):
+            return False
+        try:
+            ok = bool(self._voice_transport.process_voice_server_update(payload))
+            if ok and hasattr(self._voice_transport, "mark_voice_transport_active"):
+                self._voice_transport.mark_voice_transport_active()
+            return ok
+        except Exception:
+            return False
+
+    def process_voice_session_description(self, payload: dict[str, Any]) -> bool:
+        """Forward voice session description (mode + secret_key) to transport and retry activation."""
+        if self._voice_transport is None or not hasattr(self._voice_transport, "process_voice_session_description"):
+            return False
+        try:
+            ok = bool(self._voice_transport.process_voice_session_description(payload))
+            if ok and hasattr(self._voice_transport, "mark_voice_transport_active"):
+                self._voice_transport.mark_voice_transport_active()
+            return ok
+        except Exception:
+            return False
+
+    def pop_pending_voice_state_update(self) -> dict[str, Any] | None:
+        """Return one pending transport-originated OP4 voice state update, if any."""
+        if self._voice_transport is None or not hasattr(self._voice_transport, "pop_pending_voice_state_update"):
+            return None
+        try:
+            pending = self._voice_transport.pop_pending_voice_state_update()
+            return pending if isinstance(pending, dict) else None
+        except Exception:
+            return None
+
+    def ingest_voice_frame(
+        self,
+        *,
+        guild_id: str,
+        channel_id: str,
+        user_id: str,
+        frame: list[float],
+        speech_confidence: float,
+        tts_active: bool,
+    ) -> list[dict[str, Any]]:
+        """Pass an inbound voice frame into transport/runtime decoding when configured."""
+        if self._voice_transport is None or not hasattr(self._voice_transport, "ingest_user_audio_frame"):
+            return []
+        try:
+            return list(
+                self._voice_transport.ingest_user_audio_frame(
+                    guild_id=guild_id,
+                    channel_id=channel_id,
+                    user_id=user_id,
+                    frame=frame,
+                    speech_confidence=speech_confidence,
+                    tts_active=tts_active,
+                )
+            )
+        except Exception:
+            return []
+
+    def send_voice_tts_frame(self, *, samples: list[float], sample_rate: int = 48_000) -> dict[str, Any]:
+        """Send one synthesized voice frame through the active transport session."""
+        if self._voice_transport is None or not hasattr(self._voice_transport, "send_tts_audio_frame"):
+            return {"ok": False, "reason": "voice transport is not configured"}
+        try:
+            return dict(self._voice_transport.send_tts_audio_frame(samples=samples, sample_rate=sample_rate))
+        except Exception as exc:
+            return {"ok": False, "reason": f"voice transport send failed: {exc}"}
+
+    def configure_voice_encryption(self, *, secret_key: bytes | list[int] | str, mode: str | None = None) -> dict[str, Any]:
+        """Configure media payload encryption for active/future voice sessions."""
+        if self._voice_transport is None or not hasattr(self._voice_transport, "configure_media_encryption"):
+            return {"ok": False, "reason": "voice transport does not support encryption"}
+        try:
+            return dict(self._voice_transport.configure_media_encryption(secret_key=secret_key, mode=mode))
+        except Exception as exc:
+            return {"ok": False, "reason": f"voice encryption configuration failed: {exc}"}
 
     def get_user_voice_channel(self, guild_id: str, user_id: str) -> str | None:
         key = (str(guild_id).strip(), str(user_id).strip())
@@ -288,13 +378,28 @@ class DiscordAdapter:
             self._active_voice_guild_id = guild
             self._active_voice_channel_id = channel_id
 
-        return {
+        result: dict[str, Any] = {
             "ok": True,
             "guild_id": guild,
             "channel_id": channel_id,
             "transport": "pending",
             "reason": "voice join target resolved",
         }
+        if self._voice_transport is not None:
+            transport_out = self._voice_transport.ensure_session(
+                guild_id=guild,
+                channel_id=channel_id,
+                requested_by=user,
+                reason="mention_autojoin",
+            )
+            if not transport_out.get("ok", False):
+                return {
+                    "ok": False,
+                    "reason": f"voice transport refused session: {transport_out.get('reason', 'unknown reason')}",
+                }
+            result["transport"] = "managed"
+            result["transport_session"] = transport_out.get("session")
+        return result
 
     def issue_approval_token(self, *, action_type: str, actor: str, ttl_seconds: int = 300) -> str:
         now = int(time.time())

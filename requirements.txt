@@ -12,5 +12,9 @@ pytapo>=3.3.10
 yt-dlp>=2024.8.6
 # Optional: Letta memory/agent integration (required when KITEZH_LETTA_ENABLED=1)
 letta-client>=0.6.0
+# Optional: Discord gateway websocket runtime
+websockets>=12.0
+# Optional: Discord voice payload encryption (xsalsa20_poly1305)
+PyNaCl>=1.5.0
 # Optional: local framebuffer face on Ubuntu Server (KMS/DRM)
 pygame>=2.6.1
