@@ -9,11 +9,13 @@ are both HMAC-signed and persisted in SQLite for auditability.
 from __future__ import annotations
 
 import base64
+import datetime
 import hashlib
 import hmac
 import json
 import logging
 import random
+import re
 import sqlite3
 import threading
 import time
@@ -32,6 +34,9 @@ from skills.custom_stt_engine import CustomSpeechEngine
 logger = logging.getLogger(__name__)
 
 _REST_BASE = "https://discord.com/api/v10"
+
+# Regex for extracting a user ID from a Discord mention like <@123> or <@!123>.
+_MENTION_RE = re.compile(r"<@!?(\d+)>")
 
 # Human-readable labels for Discord audit log action types that represent
 # moderation events (see https://discord.com/developers/docs/resources/audit-log).
@@ -128,6 +133,8 @@ class DiscordAdapter:
         self._db_path = Path(config.WORKSPACE_PATH) / "discord_runtime.db"
         self._db_path.parent.mkdir(parents=True, exist_ok=True)
         self._init_db()
+        # Register built-in mod command handler so it runs for all inbound messages.
+        self.register_inbound_handler(self._handle_mod_command)
 
     @classmethod
     def from_config(cls) -> "DiscordAdapter":
@@ -786,6 +793,8 @@ class DiscordAdapter:
             and self._voice_runtime_available
         )
         guild_id = str(message.get("guild_id", "")).strip()
+        member = message.get("member") if isinstance(message.get("member"), dict) else {}
+        member_roles: list[str] = [str(r) for r in member.get("roles", []) if r]
         return {
             "event_type": "message_create",
             "message_id": str(message.get("id", "")),
@@ -797,6 +806,7 @@ class DiscordAdapter:
             "mentions_bot": mentions_bot,
             "voice_autojoin_requested": voice_autojoin_requested,
             "is_direct_message": not bool(guild_id),
+            "member_roles": member_roles,
             "received_at": int(time.time()),
             "raw": message,
         }
@@ -815,6 +825,131 @@ class DiscordAdapter:
         for handler in mention_handlers:
             with suppress(Exception):
                 handler(event)
+
+    def _enqueue_reply(self, channel_id: str, message_id: str, content: str) -> None:
+        """Queue a reply (or plain message) into the outbound worker."""
+        if message_id:
+            self.enqueue_action(
+                OutboundAction(
+                    "reply_message",
+                    {"channel_id": channel_id, "message_id": message_id, "content": content},
+                )
+            )
+        elif channel_id:
+            self.enqueue_action(OutboundAction("send_message", {"channel_id": channel_id, "content": content}))
+
+    def _handle_mod_command(self, event: dict[str, Any]) -> None:
+        """Dispatch !ban / !kick / !timeout / !warn commands for authorised members."""
+        if str(event.get("event_type", "")) != "message_create":
+            return
+        content = str(event.get("content", "")).strip()
+        if not content.startswith("!"):
+            return
+
+        member_roles: list[str] = event.get("member_roles", [])
+        is_mod = (
+            config.DISCORD_MOD_ROLE_ID in member_roles
+            or config.DISCORD_ADMIN_ROLE_ID in member_roles
+        )
+        is_admin = config.DISCORD_ADMIN_ROLE_ID in member_roles
+
+        if not is_mod:
+            return
+
+        channel_id = str(event.get("channel_id", "")).strip()
+        guild_id = str(event.get("guild_id", "")).strip()
+        message_id = str(event.get("message_id", "")).strip()
+
+        # ---- !ban -------------------------------------------------------
+        if content.lower().startswith("!ban"):
+            if not is_admin:
+                self._enqueue_reply(channel_id, message_id, "❌ You need the admin role to use `!ban`.")
+                return
+            parts = content.split(None, 2)
+            if len(parts) < 2:
+                self._enqueue_reply(channel_id, message_id, "Usage: `!ban @user [reason]`")
+                return
+            target_id = self._extract_mention(parts[1])
+            if not target_id:
+                self._enqueue_reply(channel_id, message_id, "❌ Please mention a valid user.")
+                return
+            reason = parts[2].strip() if len(parts) > 2 else "No reason provided"
+            self.enqueue_action(
+                OutboundAction("ban_member", {"guild_id": guild_id, "user_id": target_id, "reason": reason})
+            )
+            self._enqueue_reply(channel_id, message_id, f"✅ Banned <@{target_id}>. Reason: {reason}")
+            return
+
+        # ---- !kick ------------------------------------------------------
+        if content.lower().startswith("!kick"):
+            parts = content.split(None, 2)
+            if len(parts) < 2:
+                self._enqueue_reply(channel_id, message_id, "Usage: `!kick @user [reason]`")
+                return
+            target_id = self._extract_mention(parts[1])
+            if not target_id:
+                self._enqueue_reply(channel_id, message_id, "❌ Please mention a valid user.")
+                return
+            reason = parts[2].strip() if len(parts) > 2 else "No reason provided"
+            self.enqueue_action(
+                OutboundAction("kick_member", {"guild_id": guild_id, "user_id": target_id, "reason": reason})
+            )
+            self._enqueue_reply(channel_id, message_id, f"✅ Kicked <@{target_id}>. Reason: {reason}")
+            return
+
+        # ---- !timeout ---------------------------------------------------
+        if content.lower().startswith("!timeout"):
+            parts = content.split(None, 3)
+            if len(parts) < 3:
+                self._enqueue_reply(channel_id, message_id, "Usage: `!timeout @user <minutes> [reason]`")
+                return
+            target_id = self._extract_mention(parts[1])
+            if not target_id:
+                self._enqueue_reply(channel_id, message_id, "❌ Please mention a valid user.")
+                return
+            try:
+                minutes = int(parts[2])
+            except ValueError:
+                self._enqueue_reply(channel_id, message_id, "❌ Duration must be a number of minutes.")
+                return
+            reason = parts[3].strip() if len(parts) > 3 else "No reason provided"
+            until = (
+                datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(minutes=minutes)
+            ).isoformat()
+            self.enqueue_action(
+                OutboundAction(
+                    "timeout_member_direct",
+                    {"guild_id": guild_id, "user_id": target_id, "until_iso8601": until, "reason": reason},
+                )
+            )
+            self._enqueue_reply(
+                channel_id, message_id,
+                f"✅ Timed out <@{target_id}> for {minutes} minute(s). Reason: {reason}",
+            )
+            return
+
+        # ---- !warn ------------------------------------------------------
+        if content.lower().startswith("!warn"):
+            parts = content.split(None, 2)
+            if len(parts) < 2:
+                self._enqueue_reply(channel_id, message_id, "Usage: `!warn @user [reason]`")
+                return
+            target_id = self._extract_mention(parts[1])
+            if not target_id:
+                self._enqueue_reply(channel_id, message_id, "❌ Please mention a valid user.")
+                return
+            reason = parts[2].strip() if len(parts) > 2 else "You have been warned."
+            self._enqueue_reply(
+                channel_id, message_id,
+                f"⚠️ <@{target_id}> has been warned. Reason: {reason}",
+            )
+            return
+
+    @staticmethod
+    def _extract_mention(text: str) -> str | None:
+        """Return the user ID from a Discord mention string, or None if not a mention."""
+        m = _MENTION_RE.search(text)
+        return m.group(1) if m else None
 
     def _dispatch(self, action: OutboundAction) -> dict[str, Any]:
         name = action.action
@@ -843,15 +978,37 @@ class DiscordAdapter:
                 "PUT",
                 f"/guilds/{payload['guild_id']}/members/{payload['user_id']}/roles/{payload['role_id']}",
             )
+        if name == "ban_member":
+            return self._request(
+                "PUT",
+                f"/guilds/{payload['guild_id']}/bans/{payload['user_id']}",
+                {"delete_message_seconds": 0},
+                audit_reason=payload.get("reason", ""),
+            )
+        if name == "kick_member":
+            return self._request(
+                "DELETE",
+                f"/guilds/{payload['guild_id']}/members/{payload['user_id']}",
+                audit_reason=payload.get("reason", ""),
+            )
+        if name == "timeout_member_direct":
+            return self._request(
+                "PATCH",
+                f"/guilds/{payload['guild_id']}/members/{payload['user_id']}",
+                {"communication_disabled_until": payload["until_iso8601"]},
+                audit_reason=payload.get("reason", ""),
+            )
         raise RuntimeError(f"Unsupported outbound action '{name}'.")
 
-    def _request(self, method: str, path: str, body: dict[str, Any] | None = None) -> dict[str, Any]:
+    def _request(self, method: str, path: str, body: dict[str, Any] | None = None, *, audit_reason: str | None = None) -> dict[str, Any]:
         self._ensure_enabled()
         url = f"{_REST_BASE}{path}"
         headers = {
             "Authorization": f"Bot {self._runtime.bot_token}",
             "Content-Type": "application/json",
         }
+        if audit_reason:
+            headers["X-Audit-Log-Reason"] = urllib.parse.quote(audit_reason, safe="")
         data = json.dumps(body).encode("utf-8") if body is not None else None
         req = urllib.request.Request(url, data=data, headers=headers, method=method)
         try:

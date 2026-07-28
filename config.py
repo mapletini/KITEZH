@@ -198,6 +198,12 @@ DISCORD_LOG_CHANNEL_LEAVES: str = _env("KITEZH_DISCORD_LOG_CHANNEL_LEAVES", defa
 #: Discord role ID automatically assigned to every new member on join (newcomer role).
 DISCORD_NEWCOMER_ROLE_ID: str = _env("KITEZH_DISCORD_NEWCOMER_ROLE_ID", default="")
 
+#: Discord role ID whose holders may use moderator commands (kick, timeout, warn).
+DISCORD_MOD_ROLE_ID: str = "1531687553747648532"
+
+#: Discord role ID whose holders may use all moderation commands including ban.
+DISCORD_ADMIN_ROLE_ID: str = "1531688174966018224"
+
 # ---------------------------------------------------------------------------
 # Local workspace (sandboxed skill execution)
 # ---------------------------------------------------------------------------
