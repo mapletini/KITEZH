@@ -151,7 +151,11 @@ DISCORD_INBOUND_POLL_SECONDS: float = float(os.environ.get("KITEZH_DISCORD_INBOU
 DISCORD_GATEWAY_ENABLED: bool = _env_flag("KITEZH_DISCORD_GATEWAY_ENABLED", default=False)
 
 #: Gateway intents bitmask for inbound message events.
-DISCORD_GATEWAY_INTENTS: int = int(os.environ.get("KITEZH_DISCORD_GATEWAY_INTENTS", "37377"))
+#: Default 37383 = GUILDS(1) | GUILD_MEMBERS(2) | GUILD_MODERATION(4) | GUILD_MESSAGES(512)
+#: | DIRECT_MESSAGES(4096) | MESSAGE_CONTENT(32768).
+#: GUILD_MEMBERS is a privileged intent — enable it in the Discord Developer Portal
+#: (Bot → Privileged Gateway Intents) before using join/leave logging or newcomer roles.
+DISCORD_GATEWAY_INTENTS: int = int(os.environ.get("KITEZH_DISCORD_GATEWAY_INTENTS", "37383"))
 
 #: Reconnect backoff base delay for gateway runtime.
 DISCORD_GATEWAY_RECONNECT_BASE_SECONDS: float = float(
@@ -174,6 +178,25 @@ DISCORD_SEND_RETRY_MAX_SECONDS: float = float(os.environ.get("KITEZH_DISCORD_SEN
 
 #: Keep local Discord action audit records for this many days.
 DISCORD_AUDIT_RETENTION_DAYS: int = int(os.environ.get("KITEZH_DISCORD_AUDIT_RETENTION_DAYS", "30"))
+
+# ---------------------------------------------------------------------------
+# Discord event-logging channels
+# ---------------------------------------------------------------------------
+
+#: Discord channel ID for posting moderation audit log entries (bans, kicks, timeouts, etc.).
+DISCORD_LOG_CHANNEL_MODERATION: str = _env("KITEZH_DISCORD_LOG_CHANNEL_MODERATION", default="")
+
+#: Discord channel ID for general server event logs (joins + leaves).
+DISCORD_LOG_CHANNEL_GENERAL: str = _env("KITEZH_DISCORD_LOG_CHANNEL_GENERAL", default="")
+
+#: Discord channel ID for member-join events only.
+DISCORD_LOG_CHANNEL_JOINS: str = _env("KITEZH_DISCORD_LOG_CHANNEL_JOINS", default="")
+
+#: Discord channel ID for member-leave events only.
+DISCORD_LOG_CHANNEL_LEAVES: str = _env("KITEZH_DISCORD_LOG_CHANNEL_LEAVES", default="")
+
+#: Discord role ID automatically assigned to every new member on join (newcomer role).
+DISCORD_NEWCOMER_ROLE_ID: str = _env("KITEZH_DISCORD_NEWCOMER_ROLE_ID", default="")
 
 # ---------------------------------------------------------------------------
 # Local workspace (sandboxed skill execution)

@@ -157,6 +157,45 @@ class TestDiscordGatewayRuntime(unittest.TestCase):
         self.assertFalse(status["active"])
         self.assertIn("disabled", status["availability_reason"])
 
+    def test_guild_member_add_forwarded_to_adapter(self) -> None:
+        gateway, adapter = self._make_runtime()
+        payload = {
+            "op": 0,
+            "t": "GUILD_MEMBER_ADD",
+            "s": 20,
+            "d": {"guild_id": "g1", "user": {"id": "u1", "username": "NewUser"}},
+        }
+
+        gateway._handle_gateway_payload(payload)
+
+        adapter.process_member_join.assert_called_once_with(payload["d"])
+
+    def test_guild_member_remove_forwarded_to_adapter(self) -> None:
+        gateway, adapter = self._make_runtime()
+        payload = {
+            "op": 0,
+            "t": "GUILD_MEMBER_REMOVE",
+            "s": 21,
+            "d": {"guild_id": "g1", "user": {"id": "u2", "username": "LeftUser"}},
+        }
+
+        gateway._handle_gateway_payload(payload)
+
+        adapter.process_member_remove.assert_called_once_with(payload["d"])
+
+    def test_guild_audit_log_entry_forwarded_to_adapter(self) -> None:
+        gateway, adapter = self._make_runtime()
+        payload = {
+            "op": 0,
+            "t": "GUILD_AUDIT_LOG_ENTRY_CREATE",
+            "s": 22,
+            "d": {"action_type": 22, "user_id": "mod1", "target_id": "target1"},
+        }
+
+        gateway._handle_gateway_payload(payload)
+
+        adapter.process_audit_log_entry.assert_called_once_with(payload["d"])
+
 
 if __name__ == "__main__":
     unittest.main()

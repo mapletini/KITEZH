@@ -33,6 +33,20 @@ logger = logging.getLogger(__name__)
 
 _REST_BASE = "https://discord.com/api/v10"
 
+# Human-readable labels for Discord audit log action types that represent
+# moderation events (see https://discord.com/developers/docs/resources/audit-log).
+_AUDIT_ACTION_NAMES: dict[int, str] = {
+    20: "Member Kick",
+    21: "Member Prune",
+    22: "Member Ban Add",
+    23: "Member Ban Remove",
+    24: "Member Update",
+    25: "Member Role Update",
+    26: "Member Move",
+    27: "Member Disconnect",
+    28: "Bot Add",
+}
+
 
 def _b64url(data: bytes) -> str:
     return base64.urlsafe_b64encode(data).decode("ascii").rstrip("=")
@@ -62,6 +76,11 @@ class DiscordRuntimeConfig:
     voice_buffer_seconds: int
     audit_retention_days: int
     signing_secret: str
+    log_channel_moderation: str = ""
+    log_channel_general: str = ""
+    log_channel_joins: str = ""
+    log_channel_leaves: str = ""
+    newcomer_role_id: str = ""
 
 
 @dataclass(frozen=True)
@@ -126,6 +145,11 @@ class DiscordAdapter:
                 voice_buffer_seconds=config.DISCORD_VOICE_BUFFER_SECONDS,
                 audit_retention_days=config.DISCORD_AUDIT_RETENTION_DAYS,
                 signing_secret=config.COMMAND_SIGNING_SECRET,
+                log_channel_moderation=config.DISCORD_LOG_CHANNEL_MODERATION,
+                log_channel_general=config.DISCORD_LOG_CHANNEL_GENERAL,
+                log_channel_joins=config.DISCORD_LOG_CHANNEL_JOINS,
+                log_channel_leaves=config.DISCORD_LOG_CHANNEL_LEAVES,
+                newcomer_role_id=config.DISCORD_NEWCOMER_ROLE_ID,
             )
         )
 
@@ -569,6 +593,71 @@ class DiscordAdapter:
             return {"ok": False, "reason": "failed to create operator DM channel"}
         return self._request("POST", f"/channels/{dm_channel_id}/messages", {"content": message})
 
+    def add_member_role(self, guild_id: str, user_id: str, role_id: str) -> dict[str, Any]:
+        """Queue a role-add for a guild member (PUT /guilds/{guild_id}/members/{user_id}/roles/{role_id})."""
+        return self.enqueue_action(
+            OutboundAction("add_member_role", {"guild_id": guild_id, "user_id": user_id, "role_id": role_id})
+        )
+
+    def process_member_join(self, payload: dict[str, Any]) -> bool:
+        """Handle a GUILD_MEMBER_ADD event: assign newcomer role and post to log channels."""
+        if not isinstance(payload, dict):
+            return False
+        guild_id = str(payload.get("guild_id", "")).strip()
+        user = payload.get("user") if isinstance(payload.get("user"), dict) else {}
+        user_id = str(user.get("id", "")).strip()
+        username = str(user.get("global_name") or user.get("username") or "Unknown User")
+        if not guild_id or not user_id:
+            return False
+
+        if self._runtime.newcomer_role_id:
+            self.add_member_role(guild_id, user_id, self._runtime.newcomer_role_id)
+
+        msg = f"\U0001f44b **{username}** (`{user_id}`) joined the server."
+        if self._runtime.log_channel_joins:
+            self.send_message(self._runtime.log_channel_joins, msg)
+        if self._runtime.log_channel_general:
+            self.send_message(self._runtime.log_channel_general, msg)
+        return True
+
+    def process_member_remove(self, payload: dict[str, Any]) -> bool:
+        """Handle a GUILD_MEMBER_REMOVE event: post to leave and general log channels."""
+        if not isinstance(payload, dict):
+            return False
+        user = payload.get("user") if isinstance(payload.get("user"), dict) else {}
+        user_id = str(user.get("id", "")).strip()
+        username = str(user.get("global_name") or user.get("username") or "Unknown User")
+        if not user_id:
+            return False
+
+        msg = f"\U0001f6aa **{username}** (`{user_id}`) left the server."
+        if self._runtime.log_channel_leaves:
+            self.send_message(self._runtime.log_channel_leaves, msg)
+        if self._runtime.log_channel_general:
+            self.send_message(self._runtime.log_channel_general, msg)
+        return True
+
+    def process_audit_log_entry(self, payload: dict[str, Any]) -> bool:
+        """Handle a GUILD_AUDIT_LOG_ENTRY_CREATE event: post to moderation log channel."""
+        if not self._runtime.log_channel_moderation:
+            return False
+        if not isinstance(payload, dict):
+            return False
+        action_type = int(payload.get("action_type", 0) or 0)
+        action_name = _AUDIT_ACTION_NAMES.get(action_type, f"Action #{action_type}")
+        moderator_id = str(payload.get("user_id", "")).strip()
+        target_id = str(payload.get("target_id", "")).strip()
+        reason = str(payload.get("reason") or "").strip() or "No reason provided"
+
+        parts = [f"\U0001f528 **{action_name}**"]
+        if moderator_id:
+            parts.append(f"By: <@{moderator_id}>")
+        if target_id:
+            parts.append(f"Target: <@{target_id}>")
+        parts.append(f"Reason: {reason}")
+        self.send_message(self._runtime.log_channel_moderation, " | ".join(parts))
+        return True
+
     # ------------------------------------------------------------------
     # Internal queue + transport
     # ------------------------------------------------------------------
@@ -743,6 +832,11 @@ class DiscordAdapter:
             return self._request(
                 "PUT",
                 f"/channels/{payload['channel_id']}/messages/{payload['message_id']}/reactions/{emoji}/@me",
+            )
+        if name == "add_member_role":
+            return self._request(
+                "PUT",
+                f"/guilds/{payload['guild_id']}/members/{payload['user_id']}/roles/{payload['role_id']}",
             )
         raise RuntimeError(f"Unsupported outbound action '{name}'.")
 

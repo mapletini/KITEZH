@@ -374,5 +374,205 @@ class TestDiscordAdapter(unittest.TestCase):
         self.assertEqual(after, "active")
 
 
+    def test_process_member_join_queues_role_and_logs(self) -> None:
+        """process_member_join should enqueue role assignment and send log messages."""
+        import tempfile
+        from unittest.mock import patch
+
+        runtime = DiscordRuntimeConfig(
+            enabled=True,
+            bot_token="token",
+            operator_user_id="",
+            recent_messages_limit=50,
+            max_send_attempts=3,
+            retry_base_seconds=0.01,
+            retry_max_seconds=0.02,
+            inbound_poll_seconds=0.1,
+            inbound_channel_ids=(),
+            bot_user_id="",
+            gateway_enabled=False,
+            voice_enabled=False,
+            voice_autojoin_on_mention=False,
+            voice_single_active_channel=True,
+            voice_buffer_seconds=30,
+            audit_retention_days=30,
+            signing_secret="secret",
+            log_channel_joins="join-chan",
+            log_channel_general="gen-chan",
+            newcomer_role_id="role-99",
+        )
+        with tempfile.TemporaryDirectory() as tmp, patch("config.WORKSPACE_PATH", tmp):
+            adapter = DiscordAdapter(runtime)
+            sent: list[OutboundAction] = []
+            original_enqueue = adapter.enqueue_action
+
+            def capture(action: OutboundAction) -> dict:
+                sent.append(action)
+                return {"ok": True, "queued": True, "task_id": "x", "action": action.action, "payload": action.payload}
+
+            adapter.enqueue_action = capture  # type: ignore[method-assign]
+            ok = adapter.process_member_join(
+                {"guild_id": "g1", "user": {"id": "u1", "username": "Alice"}}
+            )
+
+        self.assertTrue(ok)
+        actions = [a.action for a in sent]
+        self.assertIn("add_member_role", actions)
+        self.assertEqual(sent[0].payload["role_id"], "role-99")
+        send_channels = {a.payload["channel_id"] for a in sent if a.action == "send_message"}
+        self.assertIn("join-chan", send_channels)
+        self.assertIn("gen-chan", send_channels)
+
+    def test_process_member_join_skips_role_when_unconfigured(self) -> None:
+        import tempfile
+        from unittest.mock import patch
+
+        runtime = DiscordRuntimeConfig(
+            enabled=True,
+            bot_token="token",
+            operator_user_id="",
+            recent_messages_limit=50,
+            max_send_attempts=3,
+            retry_base_seconds=0.01,
+            retry_max_seconds=0.02,
+            inbound_poll_seconds=0.1,
+            inbound_channel_ids=(),
+            bot_user_id="",
+            gateway_enabled=False,
+            voice_enabled=False,
+            voice_autojoin_on_mention=False,
+            voice_single_active_channel=True,
+            voice_buffer_seconds=30,
+            audit_retention_days=30,
+            signing_secret="secret",
+            log_channel_joins="join-chan",
+        )
+        with tempfile.TemporaryDirectory() as tmp, patch("config.WORKSPACE_PATH", tmp):
+            adapter = DiscordAdapter(runtime)
+            sent: list[OutboundAction] = []
+
+            def capture(action: OutboundAction) -> dict:
+                sent.append(action)
+                return {"ok": True, "queued": True, "task_id": "x", "action": action.action, "payload": action.payload}
+
+            adapter.enqueue_action = capture  # type: ignore[method-assign]
+            adapter.process_member_join({"guild_id": "g1", "user": {"id": "u2", "username": "Bob"}})
+
+        self.assertNotIn("add_member_role", [a.action for a in sent])
+
+    def test_process_member_remove_logs_to_leave_and_general_channels(self) -> None:
+        import tempfile
+        from unittest.mock import patch
+
+        runtime = DiscordRuntimeConfig(
+            enabled=True,
+            bot_token="token",
+            operator_user_id="",
+            recent_messages_limit=50,
+            max_send_attempts=3,
+            retry_base_seconds=0.01,
+            retry_max_seconds=0.02,
+            inbound_poll_seconds=0.1,
+            inbound_channel_ids=(),
+            bot_user_id="",
+            gateway_enabled=False,
+            voice_enabled=False,
+            voice_autojoin_on_mention=False,
+            voice_single_active_channel=True,
+            voice_buffer_seconds=30,
+            audit_retention_days=30,
+            signing_secret="secret",
+            log_channel_leaves="leave-chan",
+            log_channel_general="gen-chan",
+        )
+        with tempfile.TemporaryDirectory() as tmp, patch("config.WORKSPACE_PATH", tmp):
+            adapter = DiscordAdapter(runtime)
+            sent: list[OutboundAction] = []
+
+            def capture(action: OutboundAction) -> dict:
+                sent.append(action)
+                return {"ok": True, "queued": True, "task_id": "x", "action": action.action, "payload": action.payload}
+
+            adapter.enqueue_action = capture  # type: ignore[method-assign]
+            ok = adapter.process_member_remove({"user": {"id": "u3", "username": "Carol"}})
+
+        self.assertTrue(ok)
+        channels = {a.payload["channel_id"] for a in sent if a.action == "send_message"}
+        self.assertIn("leave-chan", channels)
+        self.assertIn("gen-chan", channels)
+
+    def test_process_audit_log_entry_posts_to_moderation_channel(self) -> None:
+        import tempfile
+        from unittest.mock import patch
+
+        runtime = DiscordRuntimeConfig(
+            enabled=True,
+            bot_token="token",
+            operator_user_id="",
+            recent_messages_limit=50,
+            max_send_attempts=3,
+            retry_base_seconds=0.01,
+            retry_max_seconds=0.02,
+            inbound_poll_seconds=0.1,
+            inbound_channel_ids=(),
+            bot_user_id="",
+            gateway_enabled=False,
+            voice_enabled=False,
+            voice_autojoin_on_mention=False,
+            voice_single_active_channel=True,
+            voice_buffer_seconds=30,
+            audit_retention_days=30,
+            signing_secret="secret",
+            log_channel_moderation="mod-chan",
+        )
+        with tempfile.TemporaryDirectory() as tmp, patch("config.WORKSPACE_PATH", tmp):
+            adapter = DiscordAdapter(runtime)
+            sent: list[OutboundAction] = []
+
+            def capture(action: OutboundAction) -> dict:
+                sent.append(action)
+                return {"ok": True, "queued": True, "task_id": "x", "action": action.action, "payload": action.payload}
+
+            adapter.enqueue_action = capture  # type: ignore[method-assign]
+            ok = adapter.process_audit_log_entry(
+                {"action_type": 22, "user_id": "mod1", "target_id": "target1", "reason": "spam"}
+            )
+
+        self.assertTrue(ok)
+        self.assertEqual(len(sent), 1)
+        self.assertEqual(sent[0].payload["channel_id"], "mod-chan")
+        self.assertIn("Member Ban Add", sent[0].payload["content"])
+        self.assertIn("spam", sent[0].payload["content"])
+
+    def test_process_audit_log_entry_noop_without_channel(self) -> None:
+        import tempfile
+        from unittest.mock import patch
+
+        runtime = DiscordRuntimeConfig(
+            enabled=True,
+            bot_token="token",
+            operator_user_id="",
+            recent_messages_limit=50,
+            max_send_attempts=3,
+            retry_base_seconds=0.01,
+            retry_max_seconds=0.02,
+            inbound_poll_seconds=0.1,
+            inbound_channel_ids=(),
+            bot_user_id="",
+            gateway_enabled=False,
+            voice_enabled=False,
+            voice_autojoin_on_mention=False,
+            voice_single_active_channel=True,
+            voice_buffer_seconds=30,
+            audit_retention_days=30,
+            signing_secret="secret",
+        )
+        with tempfile.TemporaryDirectory() as tmp, patch("config.WORKSPACE_PATH", tmp):
+            adapter = DiscordAdapter(runtime)
+            ok = adapter.process_audit_log_entry({"action_type": 22, "user_id": "mod1"})
+
+        self.assertFalse(ok)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -334,3 +334,15 @@ class DiscordGatewayRuntime:
         if event_type == "VOICE_SESSION_DESCRIPTION":
             if hasattr(self._adapter, "process_voice_session_description"):
                 self._adapter.process_voice_session_description(data)
+            return
+        if event_type == "GUILD_MEMBER_ADD":
+            if hasattr(self._adapter, "process_member_join"):
+                self._adapter.process_member_join(data)
+            return
+        if event_type == "GUILD_MEMBER_REMOVE":
+            if hasattr(self._adapter, "process_member_remove"):
+                self._adapter.process_member_remove(data)
+            return
+        if event_type == "GUILD_AUDIT_LOG_ENTRY_CREATE":
+            if hasattr(self._adapter, "process_audit_log_entry"):
+                self._adapter.process_audit_log_entry(data)
