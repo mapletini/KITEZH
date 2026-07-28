@@ -48,6 +48,11 @@ _AUDIT_ACTION_NAMES: dict[int, str] = {
 }
 
 
+def _display_name(user: dict[str, Any]) -> str:
+    """Return the best available display name from a Discord user object."""
+    return str(user.get("global_name") or user.get("username") or "Unknown User")
+
+
 def _b64url(data: bytes) -> str:
     return base64.urlsafe_b64encode(data).decode("ascii").rstrip("=")
 
@@ -606,7 +611,7 @@ class DiscordAdapter:
         guild_id = str(payload.get("guild_id", "")).strip()
         user = payload.get("user") if isinstance(payload.get("user"), dict) else {}
         user_id = str(user.get("id", "")).strip()
-        username = str(user.get("global_name") or user.get("username") or "Unknown User")
+        username = _display_name(user)
         if not guild_id or not user_id:
             return False
 
@@ -626,7 +631,7 @@ class DiscordAdapter:
             return False
         user = payload.get("user") if isinstance(payload.get("user"), dict) else {}
         user_id = str(user.get("id", "")).strip()
-        username = str(user.get("global_name") or user.get("username") or "Unknown User")
+        username = _display_name(user)
         if not user_id:
             return False
 
@@ -751,7 +756,7 @@ class DiscordAdapter:
     def _normalize_message_event(self, channel_id: str, message: dict[str, Any]) -> dict[str, Any] | None:
         author = message.get("author") if isinstance(message.get("author"), dict) else {}
         author_id = str(author.get("id", "")).strip()
-        author_name = str(author.get("global_name") or author.get("username") or "Discord User")
+        author_name = _display_name(author)
         is_bot = bool(author.get("bot"))
         if self._runtime.bot_user_id and author_id == self._runtime.bot_user_id:
             is_bot = True
