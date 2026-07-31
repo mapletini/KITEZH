@@ -69,6 +69,9 @@ KITEZH_LETTA_URL=http://localhost:8283
 KITEZH_LETTA_AGENT_ID=your_agent_id
 KITEZH_LLAMACPP_URL=http://localhost:8080
 KITEZH_LLAMACPP_MODEL=nous-hermes-2-mixtral-8x7b-dpo-gguf
+# Optional for managed --llama-server mode under systemd when llama-server
+# fails to load libllama-server-impl.so:
+KITEZH_LLAMACPP_SERVER_LIB_DIR=/usr/local/lib
 KITEZH_WEB_PORT=7860
 KITEZH_AUDIO_SPLICER_ENABLED=0
 KITEZH_AUDIO_LIBRARY_PATH=./workspace/audio_library

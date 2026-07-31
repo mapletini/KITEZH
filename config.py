@@ -254,6 +254,10 @@ LLAMACPP_MODEL: str = os.environ.get("KITEZH_LLAMACPP_MODEL", "nous-hermes-2-mix
 #: Path to the ``llama-server`` binary.  Falls back to searching PATH.
 LLAMACPP_SERVER_BIN: str = os.environ.get("KITEZH_LLAMACPP_SERVER_BIN", "llama-server")
 
+#: Optional directory prepended to LD_LIBRARY_PATH for managed llama-server.
+#: Useful for systemd services where shared libraries are outside the linker cache.
+LLAMACPP_SERVER_LIB_DIR: str = os.environ.get("KITEZH_LLAMACPP_SERVER_LIB_DIR", "")
+
 #: Absolute path to the ``.gguf`` model file to load when auto-starting llama-server.
 #: Required when KITEZH_LLAMACPP_AUTOSTART=1 or --llama-server is passed.
 LLAMACPP_MODEL_PATH: str = os.environ.get("KITEZH_LLAMACPP_MODEL_PATH", "")

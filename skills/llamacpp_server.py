@@ -19,6 +19,7 @@ Or managed manually::
 from __future__ import annotations
 
 import logging
+import os
 import shutil
 import subprocess
 import time
@@ -126,12 +127,21 @@ class LlamaCppServer:
             "--ctx-size", str(self.n_ctx),
             "--n-gpu-layers", str(self.n_gpu_layers),
         ]
+
+        popen_env = None
+        if config.LLAMACPP_SERVER_LIB_DIR:
+            popen_env = os.environ.copy()
+            existing = popen_env.get("LD_LIBRARY_PATH", "")
+            lib_dir = config.LLAMACPP_SERVER_LIB_DIR
+            popen_env["LD_LIBRARY_PATH"] = f"{lib_dir}:{existing}" if existing else lib_dir
+
         logger.info("LlamaCppServer: starting %s", " ".join(cmd))
         self._process = subprocess.Popen(
             cmd,
             stdout=subprocess.DEVNULL,
             # Inherit stderr so llama-server error messages reach the user's terminal.
             stderr=None,
+            env=popen_env,
         )
         logger.info("LlamaCppServer: process started (pid=%d), waiting for ready…", self._process.pid)
         self._wait_for_ready()
@@ -173,7 +183,8 @@ class LlamaCppServer:
             if self._process is not None and self._process.poll() is not None:
                 raise RuntimeError(
                     f"llama-server process exited unexpectedly (rc={self._process.returncode}) "
-                    "before becoming ready.  Check the model path and binary."
+                    "before becoming ready. Check the model path, binary, and shared library path "
+                    "(KITEZH_LLAMACPP_SERVER_LIB_DIR / LD_LIBRARY_PATH)."
                 )
             try:
                 resp = requests.get(health_url, timeout=_HEALTH_CHECK_TIMEOUT_SECONDS)
