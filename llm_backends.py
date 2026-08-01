@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from typing import Any, Callable
 
 import requests
@@ -13,6 +14,33 @@ import requests
 import config
 
 logger = logging.getLogger("kitezh.llm_backends")
+
+_LEADING_ASSISTANT_PHRASES = [
+    re.compile(r"^\s*as an ai language model[,\s]+", re.IGNORECASE),
+    re.compile(r"^\s*as an ai[,\s]+", re.IGNORECASE),
+    re.compile(r"^\s*i(?:'m| am) (?:just )?an ai(?: assistant| model)?[,\s]+", re.IGNORECASE),
+    re.compile(r"^\s*how can i help you today\??\s*", re.IGNORECASE),
+    re.compile(r"^\s*certainly!?\s*", re.IGNORECASE),
+    re.compile(r"^\s*sure!?\s*", re.IGNORECASE),
+]
+
+
+def normalize_kai_voice(text: str) -> str:
+    """Trim generic assistant boilerplate from the start of model replies."""
+    out = str(text or "")
+    if not out:
+        return out
+
+    changed = True
+    while changed:
+        changed = False
+        for pattern in _LEADING_ASSISTANT_PHRASES:
+            updated = pattern.sub("", out, count=1)
+            if updated != out:
+                out = updated
+                changed = True
+
+    return out.strip() or str(text or "")
 
 
 def send_to_ollama(
@@ -35,7 +63,7 @@ def send_to_ollama(
     try:
         resp = requests.post(url, json=payload, timeout=120)
         resp.raise_for_status()
-        return resp.json().get("response", "")
+        return normalize_kai_voice(resp.json().get("response", ""))
     except requests.exceptions.ConnectionError as exc:
         raise RuntimeError(
             f"Cannot connect to Ollama at '{config.OLLAMA_BASE_URL}'. "
@@ -79,8 +107,8 @@ def send_to_letta(
         messages = data.get("messages", [])
         for msg in messages:
             if msg.get("role") == "assistant":
-                return msg.get("content", "")
-        return str(data)
+                return normalize_kai_voice(msg.get("content", ""))
+        return normalize_kai_voice(str(data))
     except requests.exceptions.ConnectionError as exc:
         raise RuntimeError(
             f"Cannot connect to Letta at '{config.LETTA_BASE_URL}'. "
@@ -119,9 +147,9 @@ def send_to_llamacpp(
         data = resp.json()
         choices = data.get("choices", [])
         if not choices:
-            return str(data)
+            return normalize_kai_voice(str(data))
         message = choices[0].get("message", {})
-        return message.get("content", "") or str(data)
+        return normalize_kai_voice(message.get("content", "") or str(data))
     except requests.exceptions.ConnectionError as exc:
         raise RuntimeError(
             f"Cannot connect to llama.cpp server at '{config.LLAMACPP_BASE_URL}'. "
@@ -236,7 +264,7 @@ def chat_with_tools_llamacpp(
 
         choices = data.get("choices", [])
         if not choices:
-            return str(data)
+            return normalize_kai_voice(str(data))
 
         message = choices[0].get("message", {})
         finish_reason = choices[0].get("finish_reason", "stop")
@@ -244,7 +272,7 @@ def chat_with_tools_llamacpp(
 
         # No tool calls — return the final text response
         if not tool_calls or finish_reason != "tool_calls":
-            return message.get("content", "") or str(data)
+            return normalize_kai_voice(message.get("content", "") or str(data))
 
         # Tool calls received but no executor, or we have used all allowed rounds
         if tool_executor is None or iteration == max_tool_iterations:
@@ -252,7 +280,7 @@ def chat_with_tools_llamacpp(
                 "Tool calls received but %s; returning partial response.",
                 "no executor provided" if tool_executor is None else "max iterations reached",
             )
-            return message.get("content", "") or "[Tool call not executed]"
+            return normalize_kai_voice(message.get("content", "") or "[Tool call not executed]")
 
         # Append assistant's tool-call turn to the conversation
         payload["messages"].append(message)
@@ -281,4 +309,4 @@ def chat_with_tools_llamacpp(
                 }
             )
 
-    return "[Max tool iterations reached without final response]"
+    return normalize_kai_voice("[Max tool iterations reached without final response]")

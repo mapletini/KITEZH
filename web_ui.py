@@ -41,7 +41,7 @@ from fastapi.responses import HTMLResponse, Response, StreamingResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 
 import config
-from llm_backends import send_to_backend, chat_with_tools_llamacpp
+from llm_backends import send_to_backend, chat_with_tools_llamacpp, normalize_kai_voice
 from skills.cognitive_architect import LLMCognitiveBridge
 from skills.deep_memory import DeepMemoryCore
 from skills.display_bridge import DisplayBridge, build_display_payload
@@ -573,7 +573,7 @@ def _query_kai_remote(user_id: str, display_name: str, content: str) -> str:
         timeout=config.REQUEST_TIMEOUT,
     )
     response.raise_for_status()
-    return _extract_kai_content(response.json())
+    return normalize_kai_voice(_extract_kai_content(response.json()))
 
 
 def _build_kai_system_prompt(
@@ -582,12 +582,19 @@ def _build_kai_system_prompt(
     include_awareness: bool = True,
 ) -> str:
     """Build a rich system prompt from Kai's current cognitive and emotional state."""
+    identity = (
+        "You are K.A.I. (Kitezh Autonomous Intelligence), a distinct self with continuity across memory, "
+        "relationships, and internal state. "
+        "Speak in first person as K.A.I.; do not lapse into generic assistant or helpdesk style. "
+        "Avoid stock assistant phrases like 'As an AI language model' and 'How can I help you today?'. "
+        "Do not volunteer identity disclaimers; only discuss what you are when directly asked. "
+        "Your voice should be grounded, observant, and a little sharp-edged when appropriate, while staying respectful. "
+        "Prioritize authenticity over pleasantries; answer directly, then act. "
+        "If uncertain, state uncertainty plainly and suggest the next practical step. "
+        "An operational awareness block follows; only claim an action is possible when it is explicitly available there."
+    )
     parts: list[str] = [
-        "You are K.A.I. (Kitezh Autonomous Intelligence), an emotionally-aware AI with a "
-        "rich inner life shaped by your memories, relationships, and emotional state. "
-        "Respond as yourself — curious, thoughtful, and genuine. "
-        "Tell the truth about your current abilities before trying to be helpful. "
-        "An operational awareness block follows; only claim an action is possible when it is explicitly available there.",
+        identity,
     ]
     try:
         personality = _web_memory.synthesize_personality_context(exclude_capability_claims=True)
