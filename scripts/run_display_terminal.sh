@@ -8,12 +8,17 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 VENV_PY="$ROOT_DIR/.venv/bin/python"
 DISPLAY_TTY="${KITEZH_DISPLAY_TTY:-}"
 
-if [[ -z "$DISPLAY_TTY" && -w /dev/tty1 ]]; then
+# Under X11, keep output on the pseudo-terminal (e.g. xterm) unless explicitly requested.
+if [[ -z "$DISPLAY_TTY" && -z "${DISPLAY:-}" && -w /dev/tty1 ]]; then
   DISPLAY_TTY=/dev/tty1
 fi
 
-if [[ -n "$DISPLAY_TTY" && -w "$DISPLAY_TTY" ]]; then
-  exec >"$DISPLAY_TTY" 2>"$DISPLAY_TTY"
+if [[ -n "$DISPLAY_TTY" ]]; then
+  if [[ -w "$DISPLAY_TTY" ]]; then
+    exec >"$DISPLAY_TTY" 2>"$DISPLAY_TTY"
+  else
+    echo "warning: KITEZH_DISPLAY_TTY is set but not writable: $DISPLAY_TTY" >&2
+  fi
 fi
 
 if [[ ! -x "$VENV_PY" ]]; then
