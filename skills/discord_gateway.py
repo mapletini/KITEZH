@@ -22,6 +22,9 @@ from skills.discord_adapter import DiscordAdapter
 
 logger = logging.getLogger(__name__)
 
+_FALLBACK_GATEWAY_URL = "wss://gateway.discord.gg"
+_BOT_USER_AGENT = "DiscordBot (https://github.com/mapletini/KITEZH, 1.0)"
+
 try:
     from websockets.sync.client import connect as _ws_connect
 except Exception:  # pragma: no cover - optional dependency path
@@ -252,7 +255,10 @@ class DiscordGatewayRuntime:
     def _fetch_gateway_url(self) -> str:
         req = urllib.request.Request(
             "https://discord.com/api/v10/gateway/bot",
-            headers={"Authorization": f"Bot {self._runtime.bot_token}"},
+            headers={
+                "Authorization": f"Bot {self._runtime.bot_token}",
+                "User-Agent": _BOT_USER_AGENT,
+            },
             method="GET",
         )
         try:
@@ -260,6 +266,13 @@ class DiscordGatewayRuntime:
                 data = json.loads(resp.read().decode("utf-8"))
         except urllib.error.HTTPError as exc:
             body = exc.read().decode("utf-8", errors="replace") if exc.fp else str(exc)
+            if exc.code == 403 and "1010" in body:
+                logger.warning(
+                    "Discord /gateway/bot blocked with HTTP 403 code 1010; "
+                    "falling back to %s",
+                    _FALLBACK_GATEWAY_URL,
+                )
+                return _FALLBACK_GATEWAY_URL
             raise RuntimeError(f"Discord gateway URL fetch failed ({exc.code}): {body}") from exc
         except urllib.error.URLError as exc:
             raise RuntimeError(f"Discord gateway URL fetch failed: {exc}") from exc
