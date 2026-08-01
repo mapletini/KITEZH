@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import shutil
 import sys
 import time
 from typing import Any
@@ -13,6 +14,11 @@ logger = logging.getLogger(__name__)
 
 _HIGH_INTENSITY_THRESHOLD = 0.55
 _MEDIUM_INTENSITY_THRESHOLD = 0.25
+
+
+def _terminal_size() -> tuple[int, int]:
+    size = shutil.get_terminal_size(fallback=(80, 24))
+    return max(40, size.columns), max(20, size.lines)
 
 
 def _screen_line(state: dict[str, Any]) -> str:
@@ -41,6 +47,36 @@ def _ansi_color(label: str) -> str:
     }.get(label, "\033[38;5;117m")
 
 
+def _ansi_bg(label: str) -> str:
+    return {
+        "joy": "\033[48;5;94m",
+        "love": "\033[48;5;89m",
+        "trust": "\033[48;5;23m",
+        "fear": "\033[48;5;17m",
+        "sadness": "\033[48;5;18m",
+        "anger": "\033[48;5;52m",
+        "anticipation": "\033[48;5;58m",
+    }.get(label, "\033[48;5;17m")
+
+
+def _emotion_profile(label: str, intensity: float) -> tuple[str, str, str, str]:
+    if label == "joy":
+        return ("bright", "◕ ◕", "‿", "Kai is glowing")
+    if label == "love":
+        return ("soft", "◕ ◕", "﹏", "Kai is tender")
+    if label == "trust":
+        return ("steady", "◔ ◔", "‿", "Kai is settled")
+    if label == "fear":
+        return ("tense", "◔ ◔", "_", "Kai is braced")
+    if label == "sadness":
+        return ("low", "• •", "_", "Kai is heavy")
+    if label == "anger":
+        return ("hot", "◕ ◕" if intensity > 0.4 else "◔ ◔", "⌁", "Kai is sharp")
+    if label == "anticipation":
+        return ("charged", "◔ ◔", "∼", "Kai is leaning in")
+    return ("calm", "• •", "—", "Kai is listening")
+
+
 def render_terminal_face(state: dict[str, Any]) -> str:
     emotion = state.get("emotion", {})
     label = str(emotion.get("label", "neutral"))
@@ -50,33 +86,57 @@ def render_terminal_face(state: dict[str, Any]) -> str:
     message = str(state.get("message", ""))
     pad = emotion.get("pad", [0.0, 0.0, 0.0])
     pad_text = str([round(float(v), 2) for v in pad])
-    eyes = (
-        "◕ ◕"
-        if intensity > _HIGH_INTENSITY_THRESHOLD
-        else "◔ ◔" if intensity > _MEDIUM_INTENSITY_THRESHOLD else "• •"
-    )
-    mouth = "_" if label in {"fear", "sadness"} else "‿" if label in {"joy", "love", "trust"} else "—"
-    color = _ansi_color(label)
+    cols, rows = _terminal_size()
+    mood_band, eyes, mouth, mood_phrase = _emotion_profile(label, intensity)
+    if intensity > _HIGH_INTENSITY_THRESHOLD and label not in {"fear", "sadness"}:
+        eyes = "◕ ◕"
+    if intensity > 0.75 and label == "anger":
+        mouth = "⌒"
+    fg = _ansi_color(label)
+    bg = _ansi_bg(label)
     reset = "\033[0m"
-    clear = "\033[2J\033[H"
-    return (
-        f"{clear}{color}"
-        "╔════════════════════════════════════════╗\n"
-        "║                K.A.I.                 ║\n"
-        "║                                        ║\n"
-        f"║                {eyes:^8}                ║\n"
-        f"║                 {mouth:^4}                 ║\n"
-        "║                                        ║\n"
-        f"║ emotion   {label[:28]:<28}║\n"
-        f"║ need      {strongest_need[:28]:<28}║\n"
-        f"║ pad       {pad_text[:28]:<28}║\n"
-        f"║ {_screen_line(state)[:38]:<38} ║\n"
-        "╠════════════════════════════════════════╣\n"
-        f"║ {narrative[:38]:<38} ║\n"
-        f"║ {message[:38]:<38} ║\n"
-        "╚════════════════════════════════════════╝\n"
-        f"{reset}"
-    )
+    top = "\033[?25l\033[2J\033[H"
+    rows_out: list[str] = [top]
+
+    def line_fill(text: str = "") -> str:
+        plain = text[:cols]
+        if len(plain) < cols:
+            plain = plain + (" " * (cols - len(plain)))
+        return f"{bg}{fg}{plain}{reset}\n"
+
+    rows_out.append(line_fill())
+    rows_out.append(line_fill(f"{ 'K.A.I.':^{cols} }"))
+    rows_out.append(line_fill())
+
+    face_block = [
+        f"{mood_phrase:^{cols}}",
+        f"{eyes:^8}",
+        f"{mouth:^4}",
+        "",
+        f"emotion   {label} / {mood_band}",
+        f"need      {strongest_need}",
+        f"pad       {pad_text}",
+        _screen_line(state),
+    ]
+    face_start = max(4, rows // 3)
+    for row_index in range(4, rows - 4):
+        rel = row_index - face_start
+        if 0 <= rel < len(face_block):
+            text = face_block[rel]
+            centered = f"{text:^{cols}}"
+            rows_out.append(line_fill(centered))
+        elif row_index == rows - 5:
+            rows_out.append(line_fill(f"{narrative[:cols]:^{cols}}"))
+        elif row_index == rows - 4:
+            rows_out.append(line_fill(f"{message[:cols]:^{cols}}"))
+        else:
+            rows_out.append(line_fill())
+
+    rows_out.append(line_fill())
+    rows_out.append(line_fill(f"{ 'mode: ' + label :^{cols} }"))
+    rows_out.append(line_fill())
+    rows_out.append(reset + "\033[?25h")
+    return "".join(rows_out)
 
 
 def run_terminal_face(refresh_seconds: float | None = None, state_path: str | None = None) -> int:
@@ -84,6 +144,8 @@ def run_terminal_face(refresh_seconds: float | None = None, state_path: str | No
     last_version = None
     logged_write_failure = False
     try:
+        sys.stdout.write("\033[?1049h\033[2J\033[H")
+        sys.stdout.flush()
         while True:
             state = load_display_state(state_path)
             version = state.get("version")
@@ -101,6 +163,12 @@ def run_terminal_face(refresh_seconds: float | None = None, state_path: str | No
             time.sleep(interval)
     except KeyboardInterrupt:
         return 0
+    finally:
+        try:
+            sys.stdout.write("\033[0m\033[?25h\033[?1049l")
+            sys.stdout.flush()
+        except Exception:
+            pass
 
 
 def main(argv: list[str] | None = None) -> int:
