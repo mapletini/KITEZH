@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import argparse
+import logging
 import sys
 import time
 from typing import Any
 
 import config
 from skills.display_bridge import load_display_state
+
+logger = logging.getLogger(__name__)
 
 _HIGH_INTENSITY_THRESHOLD = 0.55
 _MEDIUM_INTENSITY_THRESHOLD = 0.25
@@ -79,13 +82,21 @@ def render_terminal_face(state: dict[str, Any]) -> str:
 def run_terminal_face(refresh_seconds: float | None = None, state_path: str | None = None) -> int:
     interval = refresh_seconds or config.DISPLAY_REFRESH_SECONDS
     last_version = None
+    logged_write_failure = False
     try:
         while True:
             state = load_display_state(state_path)
             version = state.get("version")
             if version != last_version:
-                sys.stdout.write(render_terminal_face(state))
-                sys.stdout.flush()
+                frame = render_terminal_face(state)
+                try:
+                    sys.stdout.write(frame)
+                    sys.stdout.flush()
+                    logged_write_failure = False
+                except (BrokenPipeError, OSError) as exc:
+                    if not logged_write_failure:
+                        logger.warning("Terminal face output failed; will keep retrying: %s", exc)
+                        logged_write_failure = True
                 last_version = version
             time.sleep(interval)
     except KeyboardInterrupt:
