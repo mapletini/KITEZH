@@ -32,7 +32,7 @@ def _screen_line(state: dict[str, Any]) -> str:
         target = "workspace ui"
     else:
         target = "face"
-    return f"screen   {mode[:8]:<8} → {target[:22]:<22} ({updated_by[:8]})"
+    return f"screen   {mode[:8]:<8} -> {target[:22]:<22} ({updated_by[:8]})"
 
 
 def _ansi_color(label: str) -> str:
@@ -48,33 +48,25 @@ def _ansi_color(label: str) -> str:
 
 
 def _ansi_bg(label: str) -> str:
-    return {
-        "joy": "\033[48;5;94m",
-        "love": "\033[48;5;89m",
-        "trust": "\033[48;5;23m",
-        "fear": "\033[48;5;17m",
-        "sadness": "\033[48;5;18m",
-        "anger": "\033[48;5;52m",
-        "anticipation": "\033[48;5;58m",
-    }.get(label, "\033[48;5;17m")
+    return "\033[40m"
 
 
 def _emotion_profile(label: str, intensity: float) -> tuple[str, str, str, str]:
     if label == "joy":
-        return ("bright", "◕ ◕", "‿", "Kai is glowing")
+        return ("bright", "^  ^", "\\__/", "Kai is glowing")
     if label == "love":
-        return ("soft", "◕ ◕", "﹏", "Kai is tender")
+        return ("soft", "^  ^", "\_/", "Kai is tender")
     if label == "trust":
-        return ("steady", "◔ ◔", "‿", "Kai is settled")
+        return ("steady", "o  o", "\__", "Kai is settled")
     if label == "fear":
-        return ("tense", "◔ ◔", "_", "Kai is braced")
+        return ("tense", "O  O", "____", "Kai is braced")
     if label == "sadness":
-        return ("low", "• •", "_", "Kai is heavy")
+        return ("low", "u  u", "/__\\", "Kai is heavy")
     if label == "anger":
-        return ("hot", "◕ ◕" if intensity > 0.4 else "◔ ◔", "⌁", "Kai is sharp")
+        return ("hot", ">  <" if intensity > 0.4 else "o  o", "----", "Kai is sharp")
     if label == "anticipation":
-        return ("charged", "◔ ◔", "∼", "Kai is leaning in")
-    return ("calm", "• •", "—", "Kai is listening")
+        return ("charged", "o  o", "\_/-", "Kai is leaning in")
+    return ("calm", "o  o", "\--/", "Kai is listening")
 
 
 def render_terminal_face(state: dict[str, Any]) -> str:
@@ -92,7 +84,7 @@ def render_terminal_face(state: dict[str, Any]) -> str:
         eyes = "◕ ◕"
     if intensity > 0.75 and label == "anger":
         mouth = "⌒"
-    fg = _ansi_color(label)
+    fg = "\033[97m"
     bg = _ansi_bg(label)
     reset = "\033[0m"
     top = "\033[?25l\033[2J\033[H"
@@ -105,13 +97,13 @@ def render_terminal_face(state: dict[str, Any]) -> str:
         return f"{bg}{fg}{plain}{reset}\n"
 
     rows_out.append(line_fill())
-    rows_out.append(line_fill(f"{ 'K.A.I.':^{cols} }"))
+    rows_out.append(line_fill(f"{ 'K.A.I. ASCII FACE':^{cols} }"))
     rows_out.append(line_fill())
 
     face_block = [
         f"{mood_phrase:^{cols}}",
         f"{eyes:^8}",
-        f"{mouth:^4}",
+        f"{mouth:^8}",
         "",
         f"emotion   {label} / {mood_band}",
         f"need      {strongest_need}",
