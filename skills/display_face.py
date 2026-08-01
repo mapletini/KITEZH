@@ -83,55 +83,58 @@ def run_framebuffer_face(refresh_seconds: float | None = None, state_path: str |
     running = True
     while running:
         now = time.time()
-        for event in pygame.event.get():
-            if event.type == pygame.QUIT:
-                running = False
-            elif event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
-                running = False
+        try:
+            for event in pygame.event.get():
+                # Ignore external window-close events in kiosk/service mode.
+                if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
+                    running = False
 
-        if now - last_poll >= interval:
-            state = load_display_state(state_path)
-            last_poll = now
+            if now - last_poll >= interval:
+                state = load_display_state(state_path)
+                last_poll = now
 
-        emotion = state.get("emotion", {})
-        label = str(emotion.get("label", "neutral"))
-        intensity = float(emotion.get("intensity", 0.0))
-        pad = emotion.get("pad", [0.0, 0.0, 0.0])
-        color = _emotion_color(label)
-        w, h = screen.get_size()
-        screen.fill((6, 10, 18))
+            emotion = state.get("emotion", {})
+            label = str(emotion.get("label", "neutral"))
+            intensity = float(emotion.get("intensity", 0.0))
+            pad = emotion.get("pad", [0.0, 0.0, 0.0])
+            color = _emotion_color(label)
+            w, h = screen.get_size()
+            screen.fill((6, 10, 18))
 
-        breath = 1.0 + (0.08 * math.sin(now * 1.5))
-        radius = int(min(w, h) * (0.18 + intensity * 0.12) * breath)
-        pygame.draw.circle(screen, color, (w // 2, h // 2), radius)
-        pygame.draw.circle(screen, (10, 14, 24), (w // 2, h // 2), max(20, radius // 2))
+            breath = 1.0 + (0.08 * math.sin(now * 1.5))
+            radius = int(min(w, h) * (0.18 + intensity * 0.12) * breath)
+            pygame.draw.circle(screen, color, (w // 2, h // 2), radius)
+            pygame.draw.circle(screen, (10, 14, 24), (w // 2, h // 2), max(20, radius // 2))
 
-        eye_offset_x = int(w * 0.12)
-        eye_y = int(h * (0.42 + (0.05 * (0.5 - float(pad[1])))))
-        eye_radius = max(12, int(radius * 0.18))
-        for direction in (-1, 1):
-            pygame.draw.circle(screen, (240, 248, 255), (w // 2 + direction * eye_offset_x, eye_y), eye_radius)
-            pygame.draw.circle(
+            eye_offset_x = int(w * 0.12)
+            eye_y = int(h * (0.42 + (0.05 * (0.5 - float(pad[1])))))
+            eye_radius = max(12, int(radius * 0.18))
+            for direction in (-1, 1):
+                pygame.draw.circle(screen, (240, 248, 255), (w // 2 + direction * eye_offset_x, eye_y), eye_radius)
+                pygame.draw.circle(
+                    screen,
+                    (16, 20, 30),
+                    (w // 2 + direction * eye_offset_x, eye_y),
+                    max(4, int(eye_radius * 0.4)),
+                )
+
+            mouth_width = int(radius * 0.7)
+            mouth_y = int(h * 0.62)
+            mouth_curve = int((float(pad[0]) - 0.1) * 40)
+            pygame.draw.arc(
                 screen,
-                (16, 20, 30),
-                (w // 2 + direction * eye_offset_x, eye_y),
-                max(4, int(eye_radius * 0.4)),
+                (240, 248, 255),
+                pygame.Rect((w // 2) - mouth_width // 2, mouth_y - 25, mouth_width, 50 + abs(mouth_curve)),
+                math.radians(20 if mouth_curve >= 0 else 200),
+                math.radians(160 if mouth_curve >= 0 else 340),
+                4,
             )
 
-        mouth_width = int(radius * 0.7)
-        mouth_y = int(h * 0.62)
-        mouth_curve = int((float(pad[0]) - 0.1) * 40)
-        pygame.draw.arc(
-            screen,
-            (240, 248, 255),
-            pygame.Rect((w // 2) - mouth_width // 2, mouth_y - 25, mouth_width, 50 + abs(mouth_curve)),
-            math.radians(20 if mouth_curve >= 0 else 200),
-            math.radians(160 if mouth_curve >= 0 else 340),
-            4,
-        )
-
-        pygame.display.flip()
-        clock.tick(30)
+            pygame.display.flip()
+            clock.tick(30)
+        except Exception as exc:
+            logger.exception("Framebuffer face loop error; continuing: %s", exc)
+            time.sleep(0.5)
 
     pygame.quit()
     return 0
