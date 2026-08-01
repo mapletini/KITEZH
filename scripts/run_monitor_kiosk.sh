@@ -27,6 +27,7 @@ for candidate in \
   "/snap/bin/chromium" \
   "chromium-browser" \
   "chromium" \
+  "firefox" \
   "google-chrome"; do
   [[ -n "$candidate" ]] || continue
   if command -v "$candidate" >/dev/null 2>&1 || [[ -x "$candidate" ]]; then
@@ -61,38 +62,43 @@ if command -v xset >/dev/null 2>&1; then
   xset s noblank || true
 fi
 unset DBUS_SESSION_BUS_ADDRESS || true
+browser_base="$(basename "__BROWSER__")"
 while true; do
   echo "[$(date '+%Y-%m-%d %H:%M:%S')] launching browser: __BROWSER__ __URL__" >&2
-  if command -v dbus-run-session >/dev/null 2>&1; then
-    dbus-run-session -- __BROWSER__ \
-      --kiosk \
-      --start-fullscreen \
-      --incognito \
-      --no-first-run \
-      --disable-gpu \
-      --no-sandbox \
-      --disable-dev-shm-usage \
-      --ozone-platform=x11 \
-      --disable-session-crashed-bubble \
-      --disable-infobars \
-      --user-data-dir=/tmp/kitezh-kiosk-profile \
-      --autoplay-policy=no-user-gesture-required \
-      "__URL__"
+  if [[ "$browser_base" == firefox* ]]; then
+    __BROWSER__ --kiosk "__URL__"
   else
-    __BROWSER__ \
-      --kiosk \
-      --start-fullscreen \
-      --incognito \
-      --no-first-run \
-      --disable-gpu \
-      --no-sandbox \
-      --disable-dev-shm-usage \
-      --ozone-platform=x11 \
-      --disable-session-crashed-bubble \
-      --disable-infobars \
-      --user-data-dir=/tmp/kitezh-kiosk-profile \
-      --autoplay-policy=no-user-gesture-required \
-      "__URL__"
+    if command -v dbus-run-session >/dev/null 2>&1; then
+      dbus-run-session -- __BROWSER__ \
+        --kiosk \
+        --start-fullscreen \
+        --incognito \
+        --no-first-run \
+        --disable-gpu \
+        --no-sandbox \
+        --disable-dev-shm-usage \
+        --ozone-platform=x11 \
+        --disable-session-crashed-bubble \
+        --disable-infobars \
+        --user-data-dir=/tmp/kitezh-kiosk-profile \
+        --autoplay-policy=no-user-gesture-required \
+        "__URL__"
+    else
+      __BROWSER__ \
+        --kiosk \
+        --start-fullscreen \
+        --incognito \
+        --no-first-run \
+        --disable-gpu \
+        --no-sandbox \
+        --disable-dev-shm-usage \
+        --ozone-platform=x11 \
+        --disable-session-crashed-bubble \
+        --disable-infobars \
+        --user-data-dir=/tmp/kitezh-kiosk-profile \
+        --autoplay-policy=no-user-gesture-required \
+        "__URL__"
+    fi
   fi
   rc=$?
   echo "[$(date '+%Y-%m-%d %H:%M:%S')] browser exited with code ${rc}; retrying..." >&2
