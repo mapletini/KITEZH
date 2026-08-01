@@ -29,4 +29,4 @@ fi
 
 export KITEZH_WORKSPACE="${KITEZH_WORKSPACE:-$ROOT_DIR/workspace}"
 
-exec "$VENV_PY" "$ROOT_DIR/main.py" --terminal-face
+exec "$VENV_PY" "$ROOT_DIR/skills/terminal_face.py"

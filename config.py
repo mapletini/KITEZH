@@ -94,6 +94,17 @@ def _env_csv(primary: str, *aliases: str) -> tuple[str, ...]:
     return tuple(part.strip() for part in raw.split(",") if part.strip())
 
 
+def _env_float(primary: str, *aliases: str, default: float, min_value: float | None = None) -> float:
+    raw = _env(primary, *aliases, default=str(default)).strip()
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        value = default
+    if min_value is not None and value < min_value:
+        return min_value
+    return value
+
+
 BASELINE_AFFECT_MODES: tuple[str, ...] = ("neutral", "warm", "reserved", "anxious")
 
 
@@ -382,7 +393,12 @@ REFLECTION_INTERVAL_SECONDS: float = float(os.environ.get("KITEZH_REFLECTION_INT
 CURIOSITY_INTERVAL_SECONDS: float = float(os.environ.get("KITEZH_CURIOSITY_INTERVAL_SECS", "7200"))
 
 #: Interval used by local terminal/framebuffer face processes when polling the display state file.
-DISPLAY_REFRESH_SECONDS: float = float(os.environ.get("KITEZH_DISPLAY_REFRESH_SECONDS", "1.0"))
+#: Clamped to >=0.05 to avoid accidental negative/zero-thrash values crashing face loops.
+DISPLAY_REFRESH_SECONDS: float = _env_float(
+    "KITEZH_DISPLAY_REFRESH_SECONDS",
+    default=1.0,
+    min_value=0.05,
+)
 
 #: SDL video backend used by the optional framebuffer face process.
 #: Defaults to ``kmsdrm`` for Linux/Ubuntu Server framebuffer deployments; other
