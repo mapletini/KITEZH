@@ -47,15 +47,20 @@ xset -dpms || true
 xset s off || true
 xset s noblank || true
 while true; do
-  exec __BROWSER__ \
+  echo "[$(date '+%Y-%m-%d %H:%M:%S')] launching browser: __BROWSER__ __URL__" >&2
+  __BROWSER__ \
     --kiosk \
     --start-fullscreen \
     --incognito \
     --no-first-run \
+    --disable-gpu \
     --disable-session-crashed-bubble \
     --disable-infobars \
+    --user-data-dir=/tmp/kitezh-kiosk-profile \
     --autoplay-policy=no-user-gesture-required \
     "__URL__"
+  rc=$?
+  echo "[$(date '+%Y-%m-%d %H:%M:%S')] browser exited with code ${rc}; retrying..." >&2
   sleep 1
 done
 EOF
