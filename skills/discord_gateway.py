@@ -201,13 +201,15 @@ class DiscordGatewayRuntime:
         self._ready = False
         logger.info("Connecting Discord gateway...")
         with _ws_connect(ws_url, open_timeout=10, close_timeout=2) as ws:
+            logger.info("Discord gateway websocket connected; waiting for HELLO...")
             hello_raw = ws.recv(timeout=15)
             hello = self._parse_payload(hello_raw)
             if int(hello.get("op", -1)) != 10:
                 raise RuntimeError("Discord gateway hello was not received")
             heartbeat_ms = int((hello.get("d") or {}).get("heartbeat_interval", 45000))
+            logger.info("Discord gateway HELLO received (heartbeat_interval=%sms)", heartbeat_ms)
             self._send_identify(ws)
-            self._ready = True
+            logger.info("Discord gateway IDENTIFY sent (intents=%s)", self._runtime.intents)
 
             next_heartbeat = time.monotonic() + (heartbeat_ms / 1000.0)
             while not self._stop_event.is_set():
@@ -341,6 +343,17 @@ class DiscordGatewayRuntime:
             return
         if event_type == "MESSAGE_CREATE":
             self._adapter.process_inbound_message(data)
+            return
+        if event_type == "READY":
+            self._ready = True
+            user = data.get("user") if isinstance(data.get("user"), dict) else {}
+            username = str(user.get("username", "")).strip() or "unknown"
+            user_id = str(user.get("id", "")).strip() or "unknown"
+            logger.info("Discord gateway READY as %s (%s)", username, user_id)
+            return
+        if event_type == "RESUMED":
+            self._ready = True
+            logger.info("Discord gateway RESUMED session")
             return
         if event_type == "VOICE_STATE_UPDATE":
             self._adapter.process_voice_state_update(data)
