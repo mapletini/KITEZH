@@ -53,20 +53,20 @@ def _ansi_bg(label: str) -> str:
 
 def _emotion_profile(label: str, intensity: float) -> tuple[str, str, str, str]:
     if label == "joy":
-        return ("bright", "^  ^", "\\__/", "Kai is glowing")
+        return ("bright", "^  ^", r"\__/", "Kai is glowing")
     if label == "love":
-        return ("soft", "^  ^", "\_/", "Kai is tender")
+        return ("soft", "^  ^", r"\_/", "Kai is tender")
     if label == "trust":
-        return ("steady", "o  o", "\__", "Kai is settled")
+        return ("steady", "o  o", r"\__", "Kai is settled")
     if label == "fear":
         return ("tense", "O  O", "____", "Kai is braced")
     if label == "sadness":
-        return ("low", "u  u", "/__\\", "Kai is heavy")
+        return ("low", "u  u", r"/__\", "Kai is heavy")
     if label == "anger":
         return ("hot", ">  <" if intensity > 0.4 else "o  o", "----", "Kai is sharp")
     if label == "anticipation":
-        return ("charged", "o  o", "\_/-", "Kai is leaning in")
-    return ("calm", "o  o", "\--/", "Kai is listening")
+        return ("charged", "o  o", r"\_/-", "Kai is leaning in")
+    return ("calm", "o  o", r"\--/", "Kai is listening")
 
 
 def render_terminal_face(state: dict[str, Any]) -> str:

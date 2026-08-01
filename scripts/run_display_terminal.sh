@@ -29,4 +29,7 @@ fi
 
 export KITEZH_WORKSPACE="${KITEZH_WORKSPACE:-$ROOT_DIR/workspace}"
 
-exec "$VENV_PY" "$ROOT_DIR/skills/terminal_face.py"
+# Ensure module imports resolve (config.py at repo root) when launched under xterm/systemd.
+cd "$ROOT_DIR"
+
+exec "$VENV_PY" -m skills.terminal_face
