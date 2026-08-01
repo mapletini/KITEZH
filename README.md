@@ -196,6 +196,13 @@ chmod +x scripts/run_display_face.sh
 ./scripts/run_display_face.sh
 ```
 
+If SDL backends are unavailable on your host, use the SDL-free terminal face:
+
+```bash
+chmod +x scripts/run_display_terminal.sh
+./scripts/run_display_terminal.sh
+```
+
 For complete systemd + troubleshooting instructions, see:
 - `docs/display-monitor.md`
 
