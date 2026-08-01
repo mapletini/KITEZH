@@ -55,6 +55,43 @@ def _emotion_color(label: str) -> tuple[int, int, int]:
     }.get(label, (110, 200, 255))
 
 
+def _emotion_style(label: str, intensity: float) -> dict[str, float | tuple[int, int, int]]:
+    accent = _emotion_color(label)
+    bg = {
+        "joy": (12, 20, 14),
+        "love": (20, 12, 18),
+        "trust": (10, 18, 18),
+        "fear": (8, 12, 22),
+        "sadness": (8, 10, 18),
+        "anger": (20, 8, 8),
+        "anticipation": (18, 14, 8),
+    }.get(label, (8, 12, 18))
+    mouth_curve = {
+        "joy": 1.0,
+        "love": 0.6,
+        "trust": 0.4,
+        "fear": -0.7,
+        "sadness": -1.0,
+        "anger": -0.3,
+        "anticipation": 0.2,
+    }.get(label, 0.0)
+    brow_tilt = {
+        "joy": -0.2,
+        "love": -0.1,
+        "trust": -0.05,
+        "fear": 0.35,
+        "sadness": 0.15,
+        "anger": 0.45,
+        "anticipation": 0.1,
+    }.get(label, 0.0)
+    return {
+        "accent": accent,
+        "bg": bg,
+        "mouth_curve": mouth_curve * max(0.4, intensity + 0.2),
+        "brow_tilt": brow_tilt * max(0.4, intensity + 0.2),
+    }
+
+
 def run_framebuffer_face(refresh_seconds: float | None = None, state_path: str | None = None) -> int:
     if pygame is None:
         print("pygame is not installed. Run 'pip install pygame' to use the framebuffer face.")
@@ -102,11 +139,6 @@ def run_framebuffer_face(refresh_seconds: float | None = None, state_path: str |
     last_poll = 0.0
     state = load_display_state(state_path)
 
-    # Draw to a fixed software canvas first, then scale to the real output size.
-    # This avoids direct presentation artifacts on some X11/modeset combinations.
-    logical_w, logical_h = 1280, 720
-    canvas = pygame.Surface((logical_w, logical_h)).convert()
-
     running = True
     while running:
         now = time.time()
@@ -124,46 +156,66 @@ def run_framebuffer_face(refresh_seconds: float | None = None, state_path: str |
             label = str(emotion.get("label", "neutral"))
             intensity = float(emotion.get("intensity", 0.0))
             pad = emotion.get("pad", [0.0, 0.0, 0.0])
-            color = _emotion_color(label)
+            style = _emotion_style(label, intensity)
+            color = style["accent"]
+            bg = style["bg"]
             w, h = screen.get_size()
 
-            cw, ch = canvas.get_size()
-            canvas.fill((6, 10, 18))
+            screen.fill(bg)
 
             breath = 1.0 + (0.08 * math.sin(now * 1.5))
-            radius = int(min(cw, ch) * (0.18 + intensity * 0.12) * breath)
-            pygame.draw.circle(canvas, color, (cw // 2, ch // 2), radius)
-            pygame.draw.circle(canvas, (10, 14, 24), (cw // 2, ch // 2), max(20, radius // 2))
+            radius = int(min(w, h) * (0.16 + intensity * 0.10) * breath)
+            center = (w // 2, h // 2)
+            pygame.draw.circle(screen, color, center, radius)
+            pygame.draw.circle(screen, (6, 10, 18), center, max(20, int(radius * 0.55)))
 
-            eye_offset_x = int(cw * 0.12)
-            eye_y = int(ch * (0.42 + (0.05 * (0.5 - float(pad[1])))))
+            # Outer ring and glow make the face read clearly from across the room.
+            pygame.draw.circle(screen, color, center, int(radius * 1.15), width=max(4, int(radius * 0.06)))
+            pygame.draw.circle(screen, (220, 232, 255), center, int(radius * 1.02), width=max(2, int(radius * 0.03)))
+
+            eye_offset_x = int(w * 0.13)
+            eye_y = int(h * (0.42 + (0.05 * (0.5 - float(pad[1])))))
             eye_radius = max(12, int(radius * 0.18))
+            pupil_shift = int((float(pad[0]) - 0.5) * eye_radius * 0.5)
             for direction in (-1, 1):
-                pygame.draw.circle(canvas, (240, 248, 255), (cw // 2 + direction * eye_offset_x, eye_y), eye_radius)
+                eye_x = w // 2 + direction * eye_offset_x
+                pygame.draw.circle(screen, (240, 248, 255), (eye_x, eye_y), eye_radius)
+                pygame.draw.circle(screen, color, (eye_x + pupil_shift, eye_y), max(4, int(eye_radius * 0.45)))
                 pygame.draw.circle(
-                    canvas,
+                    screen,
                     (16, 20, 30),
-                    (cw // 2 + direction * eye_offset_x, eye_y),
-                    max(4, int(eye_radius * 0.4)),
+                    (eye_x + pupil_shift, eye_y),
+                    max(3, int(eye_radius * 0.22)),
+                )
+
+            brow_tilt = float(style["brow_tilt"])
+            brow_span = int(eye_radius * 1.4)
+            brow_lift = int(eye_radius * 1.2)
+            for direction in (-1, 1):
+                bx = w // 2 + direction * eye_offset_x
+                by = eye_y - brow_lift
+                dx = brow_span // 2
+                dy = int(dx * brow_tilt) * direction
+                pygame.draw.line(
+                    screen,
+                    (235, 240, 255),
+                    (bx - dx, by + dy),
+                    (bx + dx, by - dy),
+                    max(2, eye_radius // 5),
                 )
 
             mouth_width = int(radius * 0.7)
-            mouth_y = int(ch * 0.62)
-            mouth_curve = int((float(pad[0]) - 0.1) * 40)
+            mouth_y = int(h * 0.64)
+            mood_curve = float(style["mouth_curve"])
+            mouth_curve = int((float(pad[0]) - 0.5) * 14 + mood_curve * 42)
             pygame.draw.arc(
-                canvas,
+                screen,
                 (240, 248, 255),
-                pygame.Rect((cw // 2) - mouth_width // 2, mouth_y - 25, mouth_width, 50 + abs(mouth_curve)),
+                pygame.Rect((w // 2) - mouth_width // 2, mouth_y - 25, mouth_width, 50 + abs(mouth_curve)),
                 math.radians(20 if mouth_curve >= 0 else 200),
                 math.radians(160 if mouth_curve >= 0 else 340),
                 4,
             )
-
-            if (w, h) != (cw, ch):
-                scaled = pygame.transform.smoothscale(canvas, (w, h))
-                screen.blit(scaled, (0, 0))
-            else:
-                screen.blit(canvas, (0, 0))
 
             pygame.display.flip()
             clock.tick(60)
