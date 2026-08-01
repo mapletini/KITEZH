@@ -179,7 +179,25 @@ python main.py --audio-splicer
 # Use a custom reusable clip library path for splicer mode
 python main.py --audio-splicer --audio-library /path/to/audio_library
 
+# Render the monitor-attached fullscreen face
+python main.py --framebuffer-face
+
 ```
+
+## 🖥️ Local Monitor Face
+
+Kitezh can drive a monitor attached directly to the server using the shared display state
+written to `workspace/kai_display_state.json`.
+
+Quick start:
+
+```bash
+chmod +x scripts/run_display_face.sh
+./scripts/run_display_face.sh
+```
+
+For complete systemd + troubleshooting instructions, see:
+- `docs/display-monitor.md`
 
 ## 🦙 llama.cpp + Nous Hermes 2 setup
 
