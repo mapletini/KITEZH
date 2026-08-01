@@ -219,7 +219,11 @@ class DiscordGatewayRuntime:
                 self.sync_transport_voice_updates()
                 self._drain_outbound(ws)
 
-                raw = ws.recv(timeout=1)
+                try:
+                    raw = ws.recv(timeout=1)
+                except TimeoutError:
+                    # Idle poll timeout is expected; keep the gateway session open.
+                    continue
                 if raw is None:
                     continue
                 payload = self._parse_payload(raw)
