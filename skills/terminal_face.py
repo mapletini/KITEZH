@@ -136,22 +136,28 @@ def run_terminal_face(refresh_seconds: float | None = None, state_path: str | No
     last_version = None
     logged_write_failure = False
     try:
-        sys.stdout.write("\033[?1049h\033[2J\033[H")
-        sys.stdout.flush()
+        try:
+            sys.stdout.write("\033[?1049h\033[2J\033[H")
+            sys.stdout.flush()
+        except Exception as exc:
+            logger.warning("Terminal face failed to initialize alternate screen: %s", exc)
         while True:
-            state = load_display_state(state_path)
-            version = state.get("version")
-            if version != last_version:
-                frame = render_terminal_face(state)
-                try:
-                    sys.stdout.write(frame)
-                    sys.stdout.flush()
-                    logged_write_failure = False
-                except (BrokenPipeError, OSError) as exc:
-                    if not logged_write_failure:
-                        logger.warning("Terminal face output failed; will keep retrying: %s", exc)
-                        logged_write_failure = True
-                last_version = version
+            try:
+                state = load_display_state(state_path)
+                version = state.get("version")
+                if version != last_version:
+                    frame = render_terminal_face(state)
+                    try:
+                        sys.stdout.write(frame)
+                        sys.stdout.flush()
+                        logged_write_failure = False
+                    except (BrokenPipeError, OSError) as exc:
+                        if not logged_write_failure:
+                            logger.warning("Terminal face output failed; will keep retrying: %s", exc)
+                            logged_write_failure = True
+                    last_version = version
+            except Exception as exc:
+                logger.exception("Terminal face loop error; continuing: %s", exc)
             time.sleep(interval)
     except KeyboardInterrupt:
         return 0
