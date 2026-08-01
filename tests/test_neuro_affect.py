@@ -117,6 +117,27 @@ class TestNeuroChemicalEngine(unittest.TestCase):
             self.engine.apply_stimulus(reward=0.4, success=0.2, recovery=0.3, user_id="friend")
         self.assertGreater(self.engine.baselines.dopamine, stressed_baseline)
 
+    def test_baseline_affect_mode_neutral_initializes_expected_baselines(self) -> None:
+        engine = NeuroChemicalEngine(baseline_affect_mode="neutral")
+        self.assertAlmostEqual(engine.homeostatic_baselines.dopamine, 0.48, places=3)
+        self.assertAlmostEqual(engine.homeostatic_baselines.serotonin, 0.70, places=3)
+        self.assertAlmostEqual(engine.homeostatic_baselines.cortisol, 0.13, places=3)
+
+    def test_baseline_affect_mode_warm_has_more_oxytocin_than_reserved(self) -> None:
+        warm = NeuroChemicalEngine(baseline_affect_mode="warm")
+        reserved = NeuroChemicalEngine(baseline_affect_mode="reserved")
+        self.assertGreater(warm.homeostatic_baselines.oxytocin, reserved.homeostatic_baselines.oxytocin)
+
+    def test_global_negative_pressure_accumulates_across_different_users(self) -> None:
+        engine = NeuroChemicalEngine(baseline_affect_mode="neutral")
+        before = engine.global_negative_pressure
+        engine.apply_stimulus(threat=0.6, user_id="user_a")
+        after_first = engine.global_negative_pressure
+        engine.apply_stimulus(threat=0.6, user_id="user_b")
+        after_second = engine.global_negative_pressure
+        self.assertGreater(after_first, before)
+        self.assertGreater(after_second, after_first)
+
     def test_allostatic_load_caps_serotonin_recovery(self) -> None:
         for _ in range(8):
             self.engine.apply_stimulus(threat=0.8, frustration=0.3)

@@ -94,6 +94,23 @@ def _env_csv(primary: str, *aliases: str) -> tuple[str, ...]:
     return tuple(part.strip() for part in raw.split(",") if part.strip())
 
 
+BASELINE_AFFECT_MODES: tuple[str, ...] = ("neutral", "warm", "reserved", "anxious")
+
+
+def normalize_baseline_affect_mode(value: str | None) -> str:
+    mode = str(value or "").strip().lower()
+    if mode in BASELINE_AFFECT_MODES:
+        return mode
+    return "neutral"
+
+
+#: Startup affect/tone baseline for K.A.I. before adaptive drift takes over.
+#: Allowed values: neutral | warm | reserved | anxious
+BASELINE_AFFECT_MODE: str = normalize_baseline_affect_mode(
+    _env("KITEZH_BASELINE_AFFECT_MODE", default="neutral")
+)
+
+
 #: Base URL of the remote FastAPI / Discord backend.
 REMOTE_BASE_URL: str = _env(
     "KITEZH_REMOTE_URL",

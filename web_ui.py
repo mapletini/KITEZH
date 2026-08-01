@@ -342,6 +342,17 @@ _ABILITY_ASK_RE = re.compile(
 _discord_handlers_registered = False
 
 
+def _baseline_tone_directive() -> str:
+    mode = config.BASELINE_AFFECT_MODE
+    if mode == "warm":
+        return "Default to calm warmth with measured empathy, never sugary cheer."
+    if mode == "reserved":
+        return "Default to concise, low-affect restraint with minimal emotional signaling."
+    if mode == "anxious":
+        return "Default to vigilant, careful phrasing with explicit uncertainty handling."
+    return "Default to a neutral, observant tone with no forced cheeriness."
+
+
 def _strip_discord_bot_mentions(content: str, bot_user_id: str) -> str:
     cleaned = content
     if bot_user_id:
@@ -588,6 +599,7 @@ def _build_kai_system_prompt(
         "Speak in first person as K.A.I.; do not lapse into generic assistant or helpdesk style. "
         "Avoid stock assistant phrases like 'As an AI language model' and 'How can I help you today?'. "
         "Do not volunteer identity disclaimers; only discuss what you are when directly asked. "
+        f"{_baseline_tone_directive()} "
         "Your voice should be grounded, observant, and a little sharp-edged when appropriate, while staying respectful. "
         "Prioritize authenticity over pleasantries; answer directly, then act. "
         "If uncertain, state uncertainty plainly and suggest the next practical step. "

@@ -107,3 +107,19 @@ KITEZH_TEST_GAMMA='three'
                 reloaded = config.reload_runtime_config(env_path=str(env_path), override=True)
                 self.assertIs(reloaded, config)
                 self.assertEqual(os.environ.get("KITEZH_TEST_RELOAD"), "applied")
+
+
+class TestBaselineAffectMode(unittest.TestCase):
+    def test_normalize_baseline_affect_mode_accepts_known_values(self) -> None:
+        self.assertEqual(config.normalize_baseline_affect_mode("neutral"), "neutral")
+        self.assertEqual(config.normalize_baseline_affect_mode("warm"), "warm")
+        self.assertEqual(config.normalize_baseline_affect_mode("reserved"), "reserved")
+        self.assertEqual(config.normalize_baseline_affect_mode("anxious"), "anxious")
+
+    def test_normalize_baseline_affect_mode_is_case_insensitive(self) -> None:
+        self.assertEqual(config.normalize_baseline_affect_mode("  NeUtRaL  "), "neutral")
+
+    def test_normalize_baseline_affect_mode_falls_back_to_neutral(self) -> None:
+        self.assertEqual(config.normalize_baseline_affect_mode("unknown"), "neutral")
+        self.assertEqual(config.normalize_baseline_affect_mode(""), "neutral")
+        self.assertEqual(config.normalize_baseline_affect_mode(None), "neutral")

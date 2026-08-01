@@ -22,6 +22,10 @@ _LEADING_ASSISTANT_PHRASES = [
     re.compile(r"^\s*how can i help you today\??\s*", re.IGNORECASE),
     re.compile(r"^\s*certainly!?\s*", re.IGNORECASE),
     re.compile(r"^\s*sure!?\s*", re.IGNORECASE),
+    re.compile(r"^\s*(great|awesome|excellent)\s+(question|idea)[.!]?\s*", re.IGNORECASE),
+    re.compile(r"^\s*absolutely[.!]?\s*", re.IGNORECASE),
+    re.compile(r"^\s*(happy|glad)\s+to\s+help[.!]?\s*", re.IGNORECASE),
+    re.compile(r"^\s*of\s+course[.!]?\s*", re.IGNORECASE),
 ]
 
 

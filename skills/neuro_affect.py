@@ -11,6 +11,8 @@ from typing import Literal
 
 import numpy as np
 
+import config
+
 logger = logging.getLogger(__name__)
 
 # Supported regulation families: suppression mutes outward expression, reappraisal
@@ -54,14 +56,11 @@ class NeuroChemicalEngine:
         "love": np.array([0.90, 0.45, 0.55]),
     }
 
-    def __init__(self) -> None:
-        self.homeostatic_baselines = Neurotransmitters(
-            dopamine=0.5,
-            noradrenaline=0.2,
-            serotonin=0.8,
-            cortisol=0.1,
-            oxytocin=0.15,
+    def __init__(self, baseline_affect_mode: str | None = None) -> None:
+        self.baseline_affect_mode = config.normalize_baseline_affect_mode(
+            baseline_affect_mode or config.BASELINE_AFFECT_MODE
         )
+        self.homeostatic_baselines = self._homeostatic_baselines_for_mode(self.baseline_affect_mode)
         self.baselines = Neurotransmitters(**asdict(self.homeostatic_baselines))
         self.chemicals = Neurotransmitters(**asdict(self.homeostatic_baselines))
         self.baseline_drift: dict[str, float] = {
@@ -82,11 +81,60 @@ class NeuroChemicalEngine:
         self.active_user_id: str | None = None
         self.conflict: float = 0.0
         self.allostatic_load: float = 0.0
+        self.global_positive_pressure: float = 0.0
+        self.global_negative_pressure: float = 0.0
         self.suppression_pressure: float = 0.0
         self.rumination: float = 0.0
         self.expression_clamp: float = 1.0
         self.last_update = time.time()
         self._refresh_baselines()
+
+    @staticmethod
+    def _homeostatic_baselines_for_mode(mode: str) -> Neurotransmitters:
+        affect_mode = config.normalize_baseline_affect_mode(mode)
+        if affect_mode == "warm":
+            return Neurotransmitters(
+                dopamine=0.56,
+                noradrenaline=0.20,
+                serotonin=0.74,
+                cortisol=0.10,
+                oxytocin=0.24,
+            )
+        if affect_mode == "reserved":
+            return Neurotransmitters(
+                dopamine=0.44,
+                noradrenaline=0.18,
+                serotonin=0.68,
+                cortisol=0.14,
+                oxytocin=0.11,
+            )
+        if affect_mode == "anxious":
+            return Neurotransmitters(
+                dopamine=0.40,
+                noradrenaline=0.34,
+                serotonin=0.58,
+                cortisol=0.24,
+                oxytocin=0.10,
+            )
+        # neutral
+        return Neurotransmitters(
+            dopamine=0.48,
+            noradrenaline=0.22,
+            serotonin=0.70,
+            cortisol=0.13,
+            oxytocin=0.15,
+        )
+
+    def _update_global_interaction_pressure(self, positive_signal: float, negative_signal: float) -> None:
+        """Track aggregate interaction climate across all users.
+
+        This drives long-term baseline drift globally, while per-user bonds remain
+        a secondary modifier for local buffering.
+        """
+        positive = self._clamp(float(positive_signal))
+        negative = self._clamp(float(negative_signal))
+        self.global_positive_pressure = self._clamp((self.global_positive_pressure * 0.92) + (positive * 0.08))
+        self.global_negative_pressure = self._clamp((self.global_negative_pressure * 0.92) + (negative * 0.08))
 
     @staticmethod
     def _clamp(value: float, lo: float = 0.0, hi: float = 1.0) -> float:
@@ -180,19 +228,22 @@ class NeuroChemicalEngine:
             self.conflict = max(0.0, self.conflict - 0.08)
 
     def _apply_allostatic_adaptation(self, positive_signal: float, recovery_signal: float) -> None:
-        if self.chemicals.cortisol > STRESS_THRESHOLD:
+        stress_drive = max(self.chemicals.cortisol, self.global_negative_pressure)
+        if stress_drive > STRESS_THRESHOLD:
             strain = 0.03 + (self.conflict * 0.04)
+            strain += self.global_negative_pressure * 0.015
             self.allostatic_load = self._clamp(self.allostatic_load + strain)
             self.baseline_drift["dopamine"] = max(
                 MIN_BASELINE_DRIFT,
-                self.baseline_drift["dopamine"] - (0.015 + self.conflict * 0.01),
+                self.baseline_drift["dopamine"] - (0.015 + self.conflict * 0.01 + self.global_negative_pressure * 0.01),
             )
             self.baseline_drift["serotonin"] = max(
                 MIN_BASELINE_DRIFT,
-                self.baseline_drift["serotonin"] - (0.02 + self.conflict * 0.01),
+                self.baseline_drift["serotonin"] - (0.02 + self.conflict * 0.01 + self.global_negative_pressure * 0.012),
             )
         else:
             restoration = (positive_signal * 0.02) + (recovery_signal * 0.04)
+            restoration += self.global_positive_pressure * 0.015
             self.allostatic_load = max(0.0, self.allostatic_load - restoration)
             self.baseline_drift["dopamine"] = min(
                 MAX_BASELINE_DRIFT,
@@ -229,6 +280,7 @@ class NeuroChemicalEngine:
         self.set_active_user(user_id or self.active_user_id)
         positive_signal = reward + success + recovery
         negative_signal = threat + uncertainty + frustration
+        self._update_global_interaction_pressure(positive_signal, negative_signal)
         bond_strength = self.get_social_bond(self.active_user_id)
         threat_buffer = 1.0 - (bond_strength * 0.35)
         uncertainty_buffer = 1.0 - (bond_strength * 0.15)
@@ -496,8 +548,11 @@ class NeuroChemicalEngine:
             "dominance": float(pad[2]),
             "pad": [float(v) for v in pad],
             "intensity": float(intensity),
+            "baseline_affect_mode": self.baseline_affect_mode,
             "conflict": float(self.conflict),
             "allostatic_load": float(self.allostatic_load),
+            "global_positive_pressure": float(self.global_positive_pressure),
+            "global_negative_pressure": float(self.global_negative_pressure),
             "bond_strength": float(self.get_social_bond(self.active_user_id)),
             "expression_clamp": float(self.expression_clamp),
             "needs": {key: float(value) for key, value in self.needs.items()},

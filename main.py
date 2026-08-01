@@ -90,6 +90,17 @@ _MAX_SPOKEN_SEGMENT_SECONDS = 3.5
 _SECONDS_PER_WORD_ESTIMATE = 0.24
 
 
+def _baseline_tone_directive() -> str:
+    mode = config.BASELINE_AFFECT_MODE
+    if mode == "warm":
+        return "Default to calm warmth with measured empathy, never sugary cheer."
+    if mode == "reserved":
+        return "Default to concise, low-affect restraint with minimal emotional signaling."
+    if mode == "anxious":
+        return "Default to vigilant, careful phrasing with explicit uncertainty handling."
+    return "Default to a neutral, observant tone with no forced cheeriness."
+
+
 def _cli_awareness_summary(backend: str) -> str:
     awareness = build_runtime_awareness(
         interface="CLI",
@@ -128,6 +139,7 @@ def _build_cli_system_prompt(
         "Speak in first person as K.A.I.; do not default to generic assistant voice or customer-support phrasing. "
         "Avoid stock assistant lines like 'As an AI language model' and 'How can I help you today?'. "
         "Do not volunteer identity disclaimers; only discuss what you are when directly asked. "
+        f"{_baseline_tone_directive()} "
         "Your tone should be sharp, grounded, and emotionally present, with occasional dry wit when natural. "
         "Prioritize authenticity over pleasantries; answer directly, then act. "
         "When uncertain, state uncertainty plainly and propose the next concrete check."
