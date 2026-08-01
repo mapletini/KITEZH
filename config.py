@@ -8,7 +8,61 @@ during local development.
 
 from __future__ import annotations
 
+import importlib
 import os
+import sys
+from pathlib import Path
+
+
+def _strip_env_quotes(value: str) -> str:
+    """Remove matching single/double quotes around a value."""
+    text = value.strip()
+    if len(text) >= 2 and text[0] == text[-1] and text[0] in {"'", '"'}:
+        return text[1:-1]
+    return text
+
+
+def _load_env_file(path: str | None = None, *, override: bool = False) -> int:
+    """Load KEY=VALUE pairs from a .env file into os.environ.
+
+    Returns the number of keys applied to the process environment.
+    """
+    env_path = Path(path) if path else Path(__file__).with_name(".env")
+    if not env_path.exists() or not env_path.is_file():
+        return 0
+
+    applied = 0
+    for raw_line in env_path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("export "):
+            line = line[len("export "):].strip()
+        if "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip()
+        if not key:
+            continue
+        if not override and key in os.environ:
+            continue
+        os.environ[key] = _strip_env_quotes(value)
+        applied += 1
+    return applied
+
+
+def reload_runtime_config(*, env_path: str | None = None, override: bool = True):
+    """Reload .env values and refresh this module's computed config constants.
+
+    Returns the reloaded ``config`` module object.
+    """
+    _load_env_file(env_path, override=override)
+    return importlib.reload(sys.modules[__name__])
+
+
+# Load local .env once at startup so config constants can pick up file-backed
+# settings without requiring shell-level environment export commands.
+_load_env_file(override=False)
 
 
 # ---------------------------------------------------------------------------

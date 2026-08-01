@@ -1,5 +1,7 @@
 import os
+import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 import config
@@ -66,3 +68,42 @@ class TestRuntimeSecurityWarnings(unittest.TestCase):
             warnings = config.runtime_security_warnings()
 
         self.assertEqual(warnings, [])
+
+
+class TestDotenvLoading(unittest.TestCase):
+    def test_load_env_file_reads_key_values(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            env_path = Path(tmp) / ".env"
+            env_path.write_text(
+                """
+# comment
+KITEZH_TEST_ALPHA=one
+export KITEZH_TEST_BETA="two"
+KITEZH_TEST_GAMMA='three'
+""".strip(),
+                encoding="utf-8",
+            )
+            with patch.dict(os.environ, {}, clear=True):
+                loaded = config._load_env_file(str(env_path), override=False)
+                self.assertEqual(loaded, 3)
+                self.assertEqual(os.environ.get("KITEZH_TEST_ALPHA"), "one")
+                self.assertEqual(os.environ.get("KITEZH_TEST_BETA"), "two")
+                self.assertEqual(os.environ.get("KITEZH_TEST_GAMMA"), "three")
+
+    def test_load_env_file_does_not_override_by_default(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            env_path = Path(tmp) / ".env"
+            env_path.write_text("KITEZH_TEST_ALPHA=new-value", encoding="utf-8")
+            with patch.dict(os.environ, {"KITEZH_TEST_ALPHA": "existing"}, clear=True):
+                loaded = config._load_env_file(str(env_path), override=False)
+                self.assertEqual(loaded, 0)
+                self.assertEqual(os.environ.get("KITEZH_TEST_ALPHA"), "existing")
+
+    def test_reload_runtime_config_applies_file_overrides(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            env_path = Path(tmp) / ".env"
+            env_path.write_text("KITEZH_TEST_RELOAD=applied", encoding="utf-8")
+            with patch.dict(os.environ, {}, clear=True):
+                reloaded = config.reload_runtime_config(env_path=str(env_path), override=True)
+                self.assertIs(reloaded, config)
+                self.assertEqual(os.environ.get("KITEZH_TEST_RELOAD"), "applied")
