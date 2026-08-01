@@ -12,6 +12,7 @@ export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/snap/
 WEB_PORT="${KITEZH_WEB_PORT:-7860}"
 MONITOR_URL="${KITEZH_MONITOR_URL:-http://127.0.0.1:${WEB_PORT}/monitor}"
 LOG_FILE="${KITEZH_MONITOR_LOG:-/tmp/kitezh-monitor-kiosk.log}"
+PREFERRED_BROWSER="${KITEZH_MONITOR_BROWSER:-}"
 
 # Ensure a runtime directory exists when launched as a system service.
 USER_ID="$(id -u)"
@@ -22,10 +23,12 @@ if [[ ! -d "$XDG_RUNTIME_DIR" ]]; then
 fi
 
 for candidate in \
+  "$PREFERRED_BROWSER" \
+  "/snap/bin/chromium" \
   "chromium-browser" \
   "chromium" \
-  "google-chrome" \
-  "/snap/bin/chromium"; do
+  "google-chrome"; do
+  [[ -n "$candidate" ]] || continue
   if command -v "$candidate" >/dev/null 2>&1 || [[ -x "$candidate" ]]; then
     BROWSER_BIN="$candidate"
     break
@@ -51,26 +54,46 @@ trap 'rm -f "$XSESSION_SCRIPT"' EXIT
 
 cat > "$XSESSION_SCRIPT" <<'EOF'
 #!/usr/bin/env bash
-set -euo pipefail
-xset -dpms || true
-xset s off || true
-xset s noblank || true
+set -uo pipefail
+if command -v xset >/dev/null 2>&1; then
+  xset -dpms || true
+  xset s off || true
+  xset s noblank || true
+fi
+unset DBUS_SESSION_BUS_ADDRESS || true
 while true; do
   echo "[$(date '+%Y-%m-%d %H:%M:%S')] launching browser: __BROWSER__ __URL__" >&2
-  __BROWSER__ \
-    --kiosk \
-    --start-fullscreen \
-    --incognito \
-    --no-first-run \
-    --disable-gpu \
-    --no-sandbox \
-    --disable-dev-shm-usage \
-    --ozone-platform=x11 \
-    --disable-session-crashed-bubble \
-    --disable-infobars \
-    --user-data-dir=/tmp/kitezh-kiosk-profile \
-    --autoplay-policy=no-user-gesture-required \
-    "__URL__"
+  if command -v dbus-run-session >/dev/null 2>&1; then
+    dbus-run-session -- __BROWSER__ \
+      --kiosk \
+      --start-fullscreen \
+      --incognito \
+      --no-first-run \
+      --disable-gpu \
+      --no-sandbox \
+      --disable-dev-shm-usage \
+      --ozone-platform=x11 \
+      --disable-session-crashed-bubble \
+      --disable-infobars \
+      --user-data-dir=/tmp/kitezh-kiosk-profile \
+      --autoplay-policy=no-user-gesture-required \
+      "__URL__"
+  else
+    __BROWSER__ \
+      --kiosk \
+      --start-fullscreen \
+      --incognito \
+      --no-first-run \
+      --disable-gpu \
+      --no-sandbox \
+      --disable-dev-shm-usage \
+      --ozone-platform=x11 \
+      --disable-session-crashed-bubble \
+      --disable-infobars \
+      --user-data-dir=/tmp/kitezh-kiosk-profile \
+      --autoplay-policy=no-user-gesture-required \
+      "__URL__"
+  fi
   rc=$?
   echo "[$(date '+%Y-%m-%d %H:%M:%S')] browser exited with code ${rc}; retrying..." >&2
   sleep 1

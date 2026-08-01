@@ -14,7 +14,7 @@ Install runtime packages:
 
 ```bash
 sudo apt update
-sudo apt install -y xinit xserver-xorg chromium-browser
+sudo apt install -y xinit xserver-xorg chromium-browser x11-xserver-utils xdg-utils dbus-x11
 ```
 
 Launch manually:
