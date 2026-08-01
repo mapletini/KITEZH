@@ -2,6 +2,61 @@
 
 This guide runs Kai's local face renderer on a monitor physically attached to the server.
 
+For full-screen browser kiosk mode, use `/monitor`. That route follows Kai's live
+scene selection from display state and can switch between face/UI/custom URL.
+
+## Headless Server Recommendation (NVIDIA-friendly)
+
+When the machine is "headless" (no desktop session), the most reliable monitor path is
+an Xorg kiosk process that opens `/monitor` on vt1.
+
+Install runtime packages:
+
+```bash
+sudo apt update
+sudo apt install -y xinit xserver-xorg chromium-browser
+```
+
+Launch manually:
+
+```bash
+cd /home/mini/KITEZH
+chmod +x scripts/run_monitor_kiosk.sh
+./scripts/run_monitor_kiosk.sh
+```
+
+Create `/etc/systemd/system/kitezh-monitor-kiosk.service`:
+
+```ini
+[Unit]
+Description=Kitezh Monitor Kiosk (Xorg + Chromium)
+After=network.target kitezh.service
+Requires=kitezh.service
+
+[Service]
+Type=simple
+User=mini
+Group=mini
+WorkingDirectory=/home/mini/KITEZH
+Environment=KITEZH_WORKSPACE=/home/mini/KITEZH/workspace
+Environment=KITEZH_MONITOR_URL=http://127.0.0.1:7860/monitor
+ExecStart=/home/mini/KITEZH/scripts/run_monitor_kiosk.sh
+Restart=always
+RestartSec=3
+LimitNOFILE=65535
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Enable:
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now kitezh-monitor-kiosk
+sudo systemctl status kitezh-monitor-kiosk --no-pager
+```
+
 ## 1) Install face dependency
 
 ```bash
@@ -145,7 +200,34 @@ Quick inspect:
 jq '.version, .mode, .emotion.label, .emotion.intensity, .narrative' /home/mini/KITEZH/workspace/kai_display_state.json
 ```
 
-## 5) Troubleshooting
+## 5) Kai-controlled monitor scenes
+
+Kai (or an admin on LAN) can switch the active monitor scene:
+
+```bash
+# Face scene
+curl -sS -X POST http://127.0.0.1:7860/api/kai/display/scene \
+  -H 'Content-Type: application/json' \
+  -d '{"mode":"face"}' | jq
+
+# Kai editable workspace UI scene
+curl -sS -X POST http://127.0.0.1:7860/api/kai/display/scene \
+  -H 'Content-Type: application/json' \
+  -d '{"mode":"ui"}' | jq
+
+# Local path scene
+curl -sS -X POST http://127.0.0.1:7860/api/kai/display/scene \
+  -H 'Content-Type: application/json' \
+  -d '{"mode":"url","url":"/face"}' | jq
+```
+
+External absolute URLs are blocked by default. To allow them:
+
+```env
+KITEZH_DISPLAY_ALLOW_EXTERNAL_URLS=1
+```
+
+## 6) Troubleshooting
 
 - `pygame is not installed`
   - install with `pip install pygame` inside Kitezh venv

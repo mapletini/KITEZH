@@ -389,6 +389,10 @@ DISPLAY_REFRESH_SECONDS: float = float(os.environ.get("KITEZH_DISPLAY_REFRESH_SE
 #: environments may need to override this via KITEZH_DISPLAY_VIDEO_DRIVER.
 DISPLAY_VIDEO_DRIVER: str = os.environ.get("KITEZH_DISPLAY_VIDEO_DRIVER", "kmsdrm")
 
+#: Allow monitor scene routing to absolute external URLs.
+#: Disabled by default so Kai cannot redirect local kiosk displays off-box.
+DISPLAY_ALLOW_EXTERNAL_URLS: bool = _env_flag("KITEZH_DISPLAY_ALLOW_EXTERNAL_URLS", default=False)
+
 #: Grace period for the CLI autonomy thread to stop during shutdown.
 AUTONOMY_SHUTDOWN_TIMEOUT_SECONDS: float = float(
     os.environ.get("KITEZH_AUTONOMY_SHUTDOWN_TIMEOUT", "1.0")

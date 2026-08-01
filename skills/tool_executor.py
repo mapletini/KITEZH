@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import logging
 import time
+from urllib.parse import urlparse
 from typing import Any, Callable
 
 logger = logging.getLogger(__name__)
@@ -186,6 +187,30 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
                 "type": "object",
                 "properties": {},
                 "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "set_display_scene",
+            "description": (
+                "Set the monitor scene target. Modes: 'face' (emotion orb), "
+                "'ui' (Kai's editable workspace UI), or 'url' (custom target)."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "mode": {
+                        "type": "string",
+                        "description": "Display mode: face | ui | url.",
+                    },
+                    "url": {
+                        "type": "string",
+                        "description": "Optional URL/path for mode='url'.",
+                    },
+                },
+                "required": ["mode"],
             },
         },
     },
@@ -426,6 +451,35 @@ def make_tool_executor(
         WorkspaceReader,
         WorkspaceWriter,
     )
+    import config
+
+    def _normalize_display_scene(mode_raw: Any, url_raw: Any) -> tuple[dict[str, str] | None, str | None]:
+        mode = str(mode_raw or "").strip().lower()
+        if mode not in {"face", "ui", "url"}:
+            return None, "Error: 'mode' must be one of: face, ui, url."
+
+        if mode == "face":
+            return {"mode": "face", "url": "/face", "updated_by": "kai"}, None
+        if mode == "ui":
+            return {"mode": "ui", "url": "/", "updated_by": "kai"}, None
+
+        url_text = str(url_raw or "").strip()
+        if not url_text:
+            return None, "Error: 'url' is required when mode='url'."
+
+        parsed = urlparse(url_text)
+        if parsed.scheme or parsed.netloc:
+            if not config.DISPLAY_ALLOW_EXTERNAL_URLS:
+                return None, (
+                    "Error: external URLs are disabled by config "
+                    "(set KITEZH_DISPLAY_ALLOW_EXTERNAL_URLS=1 to enable)."
+                )
+            if parsed.scheme not in {"http", "https"}:
+                return None, "Error: only http/https URLs are allowed for external display scenes."
+        elif not url_text.startswith("/"):
+            return None, "Error: local scene paths must start with '/'."
+
+        return {"mode": "url", "url": url_text, "updated_by": "kai"}, None
 
     def execute_tool(name: str, arguments: dict[str, Any]) -> str:
         logger.info("K.A.I. tool call: %s(%s)", name, arguments)
@@ -551,6 +605,26 @@ def make_tool_executor(
                 return json.dumps(display_bridge.latest(), ensure_ascii=False, indent=2)
             except Exception as exc:
                 return f"Error reading display state: {exc}"
+
+        # ── set_display_scene ───────────────────────────────────────────────
+        if name == "set_display_scene":
+            if display_bridge is None:
+                return "Display subsystem unavailable."
+            scene, error = _normalize_display_scene(arguments.get("mode"), arguments.get("url"))
+            if error:
+                return error
+            try:
+                updated = display_bridge.publish({"screen": scene})
+                return json.dumps(
+                    {
+                        "ok": True,
+                        "screen": updated.get("screen", scene),
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                )
+            except Exception as exc:
+                return f"Error updating display scene: {exc}"
 
         # ── reflect_on_memories ──────────────────────────────────────────────
         if name == "reflect_on_memories":

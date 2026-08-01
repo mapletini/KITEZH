@@ -30,6 +30,7 @@ import secrets
 import sqlite3
 import time
 import unicodedata
+from urllib.parse import urlparse
 from contextlib import asynccontextmanager, suppress
 from itertools import combinations
 from pathlib import Path
@@ -114,6 +115,32 @@ _CONCEPT_STOPWORDS = {
     # Domain labels that appear in nearly every chat line and add little concept value.
     "ourselves", "kai", "user", "assistant", "reply",
 }
+
+
+def _normalize_display_scene(mode_raw: Any, url_raw: Any, *, updated_by: str) -> tuple[dict[str, str] | None, str | None]:
+    mode = str(mode_raw or "").strip().lower()
+    if mode not in {"face", "ui", "url"}:
+        return None, "mode must be one of: face, ui, url"
+
+    if mode == "face":
+        return {"mode": "face", "url": "/face", "updated_by": updated_by}, None
+    if mode == "ui":
+        return {"mode": "ui", "url": "/", "updated_by": updated_by}, None
+
+    url_text = str(url_raw or "").strip()
+    if not url_text:
+        return None, "url is required when mode='url'"
+
+    parsed = urlparse(url_text)
+    if parsed.scheme or parsed.netloc:
+        if not config.DISPLAY_ALLOW_EXTERNAL_URLS:
+            return None, "external URLs are disabled (set KITEZH_DISPLAY_ALLOW_EXTERNAL_URLS=1 to enable)"
+        if parsed.scheme not in {"http", "https"}:
+            return None, "only http/https absolute URLs are allowed"
+    elif not url_text.startswith("/"):
+        return None, "local URLs must start with '/'"
+
+    return {"mode": "url", "url": url_text, "updated_by": updated_by}, None
 
 
 # ---------------------------------------------------------------------------
@@ -1013,6 +1040,18 @@ async def display_state() -> dict[str, Any]:
     return _display_bridge.latest()
 
 
+@app.post("/api/kai/display/scene")
+async def set_display_scene(body: dict[str, str] = Body(...)) -> dict[str, Any]:
+    scene, error = _normalize_display_scene(
+        body.get("mode"),
+        body.get("url"),
+        updated_by="admin",
+    )
+    if error:
+        raise HTTPException(status_code=422, detail=error)
+    return _display_bridge.publish({"screen": scene})
+
+
 @app.get("/api/display/stream")
 async def display_stream(request: Request) -> StreamingResponse:
     async def event_gen():
@@ -1066,6 +1105,56 @@ es.onmessage=(evt)=>applyState(JSON.parse(evt.data));
 fetch('/api/display/state').then(r=>r.json()).then(applyState);
 </script></body></html>"""
     )
+
+
+@app.get("/monitor", response_class=HTMLResponse, include_in_schema=False)
+async def monitor_page() -> HTMLResponse:
+        return HTMLResponse(
+                """<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>K.A.I. Monitor</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+html,body{margin:0;width:100%;height:100%;background:#000;color:#dff4ff;font-family:system-ui,Segoe UI,sans-serif;overflow:hidden}
+#stage{position:fixed;inset:0;border:0;width:100%;height:100%;background:#000}
+#fallback{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:#04070d;color:#dff4ff;font-size:1.1rem;letter-spacing:.02em}
+</style></head><body>
+<iframe id="stage" title="Kai monitor stage" referrerpolicy="no-referrer"></iframe>
+<div id="fallback" hidden>Kai monitor is waiting for a scene.</div>
+<script>
+const stage=document.getElementById('stage');
+const fallback=document.getElementById('fallback');
+let current='';
+
+function normalizeTarget(screen){
+    const mode=(screen&&screen.mode)||'face';
+    if(mode==='ui') return '/';
+    if(mode==='face') return '/face';
+    const raw=(screen&&screen.url)||'/face';
+    if(/^https?:\/\//i.test(raw)) return raw;
+    if(raw.startsWith('/')) return raw;
+    return '/face';
+}
+
+function applyState(state){
+    const target=normalizeTarget(state.screen||{});
+    if(!target){
+        stage.hidden=true;
+        fallback.hidden=false;
+        return;
+    }
+    fallback.hidden=true;
+    stage.hidden=false;
+    if(target!==current){
+        stage.src=target;
+        current=target;
+    }
+}
+
+fetch('/api/display/state').then(r=>r.json()).then(applyState).catch(()=>{});
+const es=new EventSource('/api/display/stream');
+es.onmessage=(evt)=>{ try { applyState(JSON.parse(evt.data)); } catch(e) {} };
+</script></body></html>"""
+        )
 
 
 @app.websocket("/ws/{user_id}")

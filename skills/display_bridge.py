@@ -34,6 +34,11 @@ class DisplayBridge:
             "preferences": [],
             "relationship": {},
             "message": "",
+            "screen": {
+                "mode": "face",
+                "url": "/face",
+                "updated_by": "system",
+            },
         }
 
     def _persist_locked(self) -> None:
@@ -69,6 +74,11 @@ def load_display_state(state_path: str | None = None) -> dict[str, Any]:
         "preferences": [],
         "relationship": {},
         "message": "",
+        "screen": {
+            "mode": "face",
+            "url": "/face",
+            "updated_by": "system",
+        },
     }
     if not path.exists():
         return default_state

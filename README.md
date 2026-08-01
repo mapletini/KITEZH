@@ -189,6 +189,18 @@ python main.py --framebuffer-face
 Kitezh can drive a monitor attached directly to the server using the shared display state
 written to `workspace/kai_display_state.json`.
 
+For browser kiosk setups, use `/monitor` as the display URL. It follows Kai's live
+scene routing and can swap between:
+- face scene (`/face`)
+- full editable UI scene (`/`)
+ custom URL scene (`/api/kai/display/scene`)
+
+For headless Linux servers with an attached monitor, use:
+
+```bash
+./scripts/run_monitor_kiosk.sh
+```
+
 Quick start:
 
 ```bash
