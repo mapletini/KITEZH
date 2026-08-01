@@ -23,6 +23,7 @@ import json
 import re
 import sqlite3
 import logging
+import tempfile
 import numpy as np
 from typing import List, Dict, Any, Tuple
 
@@ -123,17 +124,46 @@ class EmotionalGraph:
 
 class DeepMemoryCore:
     def __init__(self, workspace_path: str = ".", letta_bridge=None) -> None:
-        self.db_path = os.path.abspath(os.path.join(workspace_path, "kai_deep_mind.db"))
-        db_dir = os.path.dirname(self.db_path)
-        if db_dir:
-            os.makedirs(db_dir, exist_ok=True)
+        self._workspace_path = os.path.abspath(workspace_path)
+        self.db_path = os.path.join(self._workspace_path, "kai_deep_mind.db")
+        self._fallback_in_use = False
+        self._ensure_db_parent_dir(self.db_path)
         self._letta = letta_bridge
         self._initialize_schema()
 
+    def _ensure_db_parent_dir(self, db_path: str) -> None:
+        db_dir = os.path.dirname(db_path)
+        if db_dir:
+            os.makedirs(db_dir, exist_ok=True)
+
+    def _fallback_db_path(self) -> str:
+        # Use the system temp directory so service users always have a writable target.
+        return os.path.join(tempfile.gettempdir(), "kitezh", "kai_deep_mind.db")
+
+    @staticmethod
+    def _is_db_open_error(exc: sqlite3.OperationalError) -> bool:
+        return "unable to open database file" in str(exc).lower()
+
     def _get_connection(self) -> sqlite3.Connection:
         try:
+            self._ensure_db_parent_dir(self.db_path)
             conn = sqlite3.connect(self.db_path)
-        except sqlite3.OperationalError:
+        except sqlite3.OperationalError as exc:
+            if not self._fallback_in_use and self._is_db_open_error(exc):
+                fallback = self._fallback_db_path()
+                logger.warning(
+                    "Primary deep-memory DB path unavailable (%s). Falling back to %s",
+                    self.db_path,
+                    fallback,
+                )
+                self._ensure_db_parent_dir(fallback)
+                self.db_path = fallback
+                self._fallback_in_use = True
+                conn = sqlite3.connect(self.db_path)
+            else:
+                logger.exception("Failed to open deep-memory SQLite database at '%s'", self.db_path)
+                raise
+        except Exception:
             logger.exception("Failed to open deep-memory SQLite database at '%s'", self.db_path)
             raise
         conn.row_factory = sqlite3.Row

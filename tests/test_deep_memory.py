@@ -16,6 +16,7 @@ Covers:
 import tempfile
 import unittest
 import os
+from unittest.mock import patch
 
 from skills.deep_memory import (
     DeepMemoryCore,
@@ -74,6 +75,28 @@ class TestDeepMemoryCore(unittest.TestCase):
         mem = DeepMemoryCore(workspace_path=nested_workspace)
         self.assertTrue(os.path.isdir(nested_workspace))
         self.assertTrue(os.path.isfile(mem.db_path))
+
+    def test_falls_back_when_primary_db_cannot_be_opened(self) -> None:
+        import sqlite3
+
+        blocked_workspace = os.path.join(self._tmp, "blocked")
+        blocked_db = os.path.abspath(os.path.join(blocked_workspace, "kai_deep_mind.db"))
+        fallback_tmp = os.path.join(self._tmp, "tmp_fallback")
+        real_connect = sqlite3.connect
+
+        def flaky_connect(path, *args, **kwargs):
+            resolved = os.path.abspath(str(path))
+            if resolved == blocked_db:
+                raise sqlite3.OperationalError("unable to open database file")
+            return real_connect(path, *args, **kwargs)
+
+        with patch("skills.deep_memory.tempfile.gettempdir", return_value=fallback_tmp):
+            with patch("skills.deep_memory.sqlite3.connect", side_effect=flaky_connect):
+                mem = DeepMemoryCore(workspace_path=blocked_workspace)
+
+        self.assertNotEqual(os.path.abspath(mem.db_path), blocked_db)
+        self.assertTrue(os.path.isfile(mem.db_path))
+        self.assertTrue(os.path.abspath(mem.db_path).startswith(os.path.abspath(fallback_tmp)))
 
     # ------------------------------------------------------------------
     # archive_episode
