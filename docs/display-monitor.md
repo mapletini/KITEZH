@@ -18,10 +18,10 @@ sudo apt install -y xinit xserver-xorg chromium-browser x11-xserver-utils xdg-ut
 ```
 
 If Chromium is installed as a snap and exits with a cgroup error like
-`not a snap cgroup for tag snap.chromium.chromium`, use Firefox for kiosk mode:
+`not a snap cgroup for tag snap.chromium.chromium`, use a non-snap browser for kiosk mode:
 
 ```bash
-sudo apt install -y firefox
+sudo apt install -y epiphany-browser
 ```
 
 Launch manually:
@@ -47,7 +47,7 @@ Group=mini
 WorkingDirectory=/home/mini/KITEZH
 Environment=KITEZH_WORKSPACE=/home/mini/KITEZH/workspace
 Environment=KITEZH_MONITOR_URL=http://127.0.0.1:7860/monitor
-Environment=KITEZH_MONITOR_BROWSER=firefox
+Environment=KITEZH_MONITOR_BROWSER=epiphany-browser
 Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/snap/bin
 Environment=KITEZH_MONITOR_LOG=/tmp/kitezh-monitor-kiosk.log
 ExecStart=/home/mini/KITEZH/scripts/run_monitor_kiosk.sh
@@ -71,6 +71,12 @@ Tail kiosk-specific logs:
 
 ```bash
 tail -f /tmp/kitezh-monitor-kiosk.log
+```
+
+Verify the active service environment:
+
+```bash
+systemctl show kitezh-monitor-kiosk -p Environment
 ```
 
 ## 1) Install face dependency

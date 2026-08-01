@@ -27,6 +27,8 @@ for candidate in \
   "/snap/bin/chromium" \
   "chromium-browser" \
   "chromium" \
+  "epiphany-browser" \
+  "cog" \
   "firefox" \
   "google-chrome"; do
   [[ -n "$candidate" ]] || continue
@@ -67,6 +69,10 @@ while true; do
   echo "[$(date '+%Y-%m-%d %H:%M:%S')] launching browser: __BROWSER__ __URL__" >&2
   if [[ "$browser_base" == firefox* ]]; then
     __BROWSER__ --kiosk "__URL__"
+  elif [[ "$browser_base" == epiphany* ]]; then
+    __BROWSER__ --application-mode="__URL__"
+  elif [[ "$browser_base" == cog* ]]; then
+    __BROWSER__ "__URL__"
   else
     if command -v dbus-run-session >/dev/null 2>&1; then
       dbus-run-session -- __BROWSER__ \
