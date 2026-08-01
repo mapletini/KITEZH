@@ -18,6 +18,24 @@ except ImportError:  # pragma: no cover - optional dependency
     logger.info("pygame is unavailable; framebuffer face rendering will be disabled.")
 
 
+def _video_driver_candidates() -> list[str]:
+    explicit = os.environ.get("SDL_VIDEODRIVER", "").strip()
+    if explicit:
+        return [explicit]
+
+    preferred = str(config.DISPLAY_VIDEO_DRIVER or "").strip()
+    has_x11_display = bool(os.environ.get("DISPLAY", "").strip())
+    defaults = ["fbcon", "kmsdrm", "x11", "wayland", "directfb"]
+    if has_x11_display:
+        defaults = ["x11", "wayland", "fbcon", "kmsdrm", "directfb"]
+
+    candidates: list[str] = []
+    for driver in [preferred, *defaults]:
+        if driver and driver not in candidates:
+            candidates.append(driver)
+    return candidates
+
+
 def _emotion_color(label: str) -> tuple[int, int, int]:
     return {
         "joy": (255, 210, 80),
@@ -35,9 +53,28 @@ def run_framebuffer_face(refresh_seconds: float | None = None, state_path: str |
         print("pygame is not installed. Run 'pip install pygame' to use the framebuffer face.")
         return 1
 
-    os.environ.setdefault("SDL_VIDEODRIVER", config.DISPLAY_VIDEO_DRIVER)
+    attempted: list[str] = []
+    screen = None
+    for driver in _video_driver_candidates():
+        os.environ["SDL_VIDEODRIVER"] = driver
+        attempted.append(driver)
+        try:
+            pygame.display.quit()
+            pygame.display.init()
+            screen = pygame.display.set_mode((0, 0), pygame.FULLSCREEN)
+            logger.info("Framebuffer face started with SDL_VIDEODRIVER=%s", driver)
+            break
+        except pygame.error as exc:
+            logger.warning("SDL driver '%s' unavailable: %s", driver, exc)
+
+    if screen is None:
+        print(
+            "No compatible SDL video backend was available. "
+            f"Tried: {', '.join(attempted)}"
+        )
+        return 1
+
     pygame.init()
-    screen = pygame.display.set_mode((0, 0), pygame.FULLSCREEN)
     clock = pygame.time.Clock()
     interval = refresh_seconds or config.DISPLAY_REFRESH_SECONDS
     last_poll = 0.0

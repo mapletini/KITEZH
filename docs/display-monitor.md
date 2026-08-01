@@ -23,6 +23,8 @@ Expected behavior:
 - it reacts as `workspace/kai_display_state.json` changes
 - `Esc` exits
 
+The renderer now auto-tries several SDL backends (`fbcon`, `kmsdrm`, `x11`, `wayland`) if one is unavailable.
+
 If the screen stays black, try a different SDL backend:
 
 ```bash
@@ -53,7 +55,8 @@ User=mini
 Group=mini
 WorkingDirectory=/home/mini/KITEZH
 Environment=KITEZH_WORKSPACE=/home/mini/KITEZH/workspace
-Environment=KITEZH_DISPLAY_VIDEO_DRIVER=kmsdrm
+# Optional: pin a preferred backend; omit to let auto-fallback choose.
+# Environment=KITEZH_DISPLAY_VIDEO_DRIVER=fbcon
 ExecStart=/home/mini/KITEZH/scripts/run_display_face.sh
 Restart=always
 RestartSec=3

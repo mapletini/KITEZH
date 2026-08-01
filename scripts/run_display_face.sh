@@ -16,9 +16,10 @@ fi
 # Keep this aligned with the main service workspace unless explicitly overridden.
 export KITEZH_WORKSPACE="${KITEZH_WORKSPACE:-$ROOT_DIR/workspace}"
 
-# Default to KMS/DRM for direct console rendering on Linux servers.
-# Override per hardware/session via environment if needed.
-export KITEZH_DISPLAY_VIDEO_DRIVER="${KITEZH_DISPLAY_VIDEO_DRIVER:-kmsdrm}"
+# Optional preferred video backend; if omitted, renderer will auto-fallback.
+if [[ -n "${KITEZH_DISPLAY_VIDEO_DRIVER:-}" ]]; then
+  export KITEZH_DISPLAY_VIDEO_DRIVER
+fi
 
 # Optional SDL tuning knobs (set only when provided by caller).
 if [[ -n "${KITEZH_SDL_FBDEV:-}" ]]; then
