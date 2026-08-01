@@ -35,6 +35,7 @@ logger = logging.getLogger(__name__)
 
 _REST_BASE = "https://discord.com/api/v10"
 _MAX_DISCORD_MESSAGE_CHARS = 2000
+_BOT_USER_AGENT = "DiscordBot (https://github.com/mapletini/KITEZH, 1.0)"
 
 # Regex for extracting a user ID from a Discord mention like <@123> or <@!123>.
 _MENTION_RE = re.compile(r"<@!?(\d+)>")
@@ -1035,6 +1036,7 @@ class DiscordAdapter:
         headers = {
             "Authorization": f"Bot {self._runtime.bot_token}",
             "Content-Type": "application/json",
+            "User-Agent": _BOT_USER_AGENT,
         }
         if audit_reason:
             headers["X-Audit-Log-Reason"] = urllib.parse.quote(audit_reason, safe="")
