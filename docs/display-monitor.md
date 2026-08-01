@@ -41,6 +41,7 @@ WorkingDirectory=/home/mini/KITEZH
 Environment=KITEZH_WORKSPACE=/home/mini/KITEZH/workspace
 Environment=KITEZH_MONITOR_URL=http://127.0.0.1:7860/monitor
 Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/snap/bin
+Environment=KITEZH_MONITOR_LOG=/tmp/kitezh-monitor-kiosk.log
 ExecStart=/home/mini/KITEZH/scripts/run_monitor_kiosk.sh
 Restart=always
 RestartSec=3
@@ -56,6 +57,12 @@ Enable:
 sudo systemctl daemon-reload
 sudo systemctl enable --now kitezh-monitor-kiosk
 sudo systemctl status kitezh-monitor-kiosk --no-pager
+```
+
+Tail kiosk-specific logs:
+
+```bash
+tail -f /tmp/kitezh-monitor-kiosk.log
 ```
 
 ## 1) Install face dependency

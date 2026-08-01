@@ -11,6 +11,15 @@ export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/snap/
 
 WEB_PORT="${KITEZH_WEB_PORT:-7860}"
 MONITOR_URL="${KITEZH_MONITOR_URL:-http://127.0.0.1:${WEB_PORT}/monitor}"
+LOG_FILE="${KITEZH_MONITOR_LOG:-/tmp/kitezh-monitor-kiosk.log}"
+
+# Ensure a runtime directory exists when launched as a system service.
+USER_ID="$(id -u)"
+export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/${USER_ID}}"
+if [[ ! -d "$XDG_RUNTIME_DIR" ]]; then
+  mkdir -p "$XDG_RUNTIME_DIR"
+  chmod 700 "$XDG_RUNTIME_DIR" || true
+fi
 
 for candidate in \
   "chromium-browser" \
@@ -54,6 +63,9 @@ while true; do
     --incognito \
     --no-first-run \
     --disable-gpu \
+    --no-sandbox \
+    --disable-dev-shm-usage \
+    --ozone-platform=x11 \
     --disable-session-crashed-bubble \
     --disable-infobars \
     --user-data-dir=/tmp/kitezh-kiosk-profile \
@@ -70,4 +82,11 @@ sed -i "s|__URL__|${MONITOR_URL}|g" "$XSESSION_SCRIPT"
 chmod +x "$XSESSION_SCRIPT"
 
 # -keeptty helps service-managed sessions keep VT ownership stable.
-exec xinit "$XSESSION_SCRIPT" -- :0 vt1 -keeptty -nolisten tcp
+echo "[$(date '+%Y-%m-%d %H:%M:%S')] starting monitor kiosk for ${MONITOR_URL}" | tee -a "$LOG_FILE"
+while true; do
+  echo "[$(date '+%Y-%m-%d %H:%M:%S')] launching xinit" | tee -a "$LOG_FILE"
+  xinit "$XSESSION_SCRIPT" -- :0 vt1 -keeptty -nolisten tcp >> "$LOG_FILE" 2>&1 || true
+  rc=$?
+  echo "[$(date '+%Y-%m-%d %H:%M:%S')] xinit exited with code ${rc}; restarting..." | tee -a "$LOG_FILE"
+  sleep 2
+done
