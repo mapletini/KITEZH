@@ -40,6 +40,7 @@ Group=mini
 WorkingDirectory=/home/mini/KITEZH
 Environment=KITEZH_WORKSPACE=/home/mini/KITEZH/workspace
 Environment=KITEZH_MONITOR_URL=http://127.0.0.1:7860/monitor
+Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/snap/bin
 ExecStart=/home/mini/KITEZH/scripts/run_monitor_kiosk.sh
 Restart=always
 RestartSec=3

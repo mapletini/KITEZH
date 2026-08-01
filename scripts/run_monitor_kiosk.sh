@@ -6,22 +6,34 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
+# systemd services often have a minimal PATH; include snap/bin for chromium.
+export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/snap/bin:${PATH:-}"
+
 WEB_PORT="${KITEZH_WEB_PORT:-7860}"
 MONITOR_URL="${KITEZH_MONITOR_URL:-http://127.0.0.1:${WEB_PORT}/monitor}"
 
-if command -v chromium-browser >/dev/null 2>&1; then
-  BROWSER_BIN="chromium-browser"
-elif command -v chromium >/dev/null 2>&1; then
-  BROWSER_BIN="chromium"
-elif command -v google-chrome >/dev/null 2>&1; then
-  BROWSER_BIN="google-chrome"
-else
+for candidate in \
+  "chromium-browser" \
+  "chromium" \
+  "google-chrome" \
+  "/snap/bin/chromium"; do
+  if command -v "$candidate" >/dev/null 2>&1 || [[ -x "$candidate" ]]; then
+    BROWSER_BIN="$candidate"
+    break
+  fi
+done
+
+if [[ -z "${BROWSER_BIN:-}" ]]; then
   echo "error: no Chromium-compatible browser found (chromium-browser/chromium/google-chrome)" >&2
   exit 1
 fi
 
 if ! command -v xinit >/dev/null 2>&1; then
   echo "error: xinit not found. install: sudo apt install xinit xserver-xorg" >&2
+  exit 1
+fi
+if ! command -v Xorg >/dev/null 2>&1 && [[ ! -x "/usr/lib/xorg/Xorg" ]]; then
+  echo "error: Xorg server not found. install: sudo apt install xserver-xorg" >&2
   exit 1
 fi
 
