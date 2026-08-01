@@ -339,6 +339,77 @@ _ABILITY_ASK_RE = re.compile(
     r"\b(can\s+you|are\s+you\s+able|ability|capab|able\s+to)\b",
     re.IGNORECASE,
 )
+_discord_handlers_registered = False
+
+
+def _strip_discord_bot_mentions(content: str, bot_user_id: str) -> str:
+    cleaned = content
+    if bot_user_id:
+        cleaned = cleaned.replace(f"<@{bot_user_id}>", " ")
+        cleaned = cleaned.replace(f"<@!{bot_user_id}>", " ")
+    return " ".join(cleaned.split())
+
+
+def _handle_discord_inbound(event: dict[str, Any]) -> None:
+    if str(event.get("event_type", "")) != "message_create":
+        return
+
+    is_direct_message = bool(event.get("is_direct_message", False))
+    mentions_bot = bool(event.get("mentions_bot", False))
+    if not mentions_bot and not is_direct_message:
+        return
+
+    content = _strip_discord_bot_mentions(
+        str(event.get("content", "")),
+        config.DISCORD_BOT_USER_ID,
+    )
+    if not content:
+        return
+
+    channel_id = str(event.get("channel_id", "")).strip()
+    message_id = str(event.get("message_id", "")).strip()
+    guild_id = str(event.get("guild_id", "")).strip()
+    author_id = str(event.get("author_id", "")).strip() or "unknown"
+    author_name = str(event.get("author_name", "")).strip() or "Discord User"
+    user_id = f"discord:{author_id}"
+
+    try:
+        reply = _query_kai(user_id, author_name, content)
+        _process_web_cognitive_loop(user_id, author_name, content, reply)
+    except Exception as exc:
+        logger.exception("Unexpected error while handling Discord inbound message: %s", exc)
+        return
+
+    if channel_id and message_id:
+        _discord_adapter.reply_message(channel_id, message_id, reply)
+    elif channel_id:
+        _discord_adapter.send_message(channel_id, reply)
+
+    if bool(event.get("voice_autojoin_requested", False)) and guild_id and author_id != "unknown":
+        autojoin = _discord_adapter.request_voice_autojoin(guild_id=guild_id, user_id=author_id)
+        if autojoin.get("ok", False):
+            queued_count = _discord_gateway.sync_transport_voice_updates()
+            logger.info(
+                "Discord voice auto-join target resolved for %s: guild=%s channel=%s (gateway queued=%s).",
+                author_name,
+                autojoin.get("guild_id", ""),
+                autojoin.get("channel_id", ""),
+                queued_count > 0,
+            )
+        else:
+            logger.info(
+                "Discord voice auto-join request from %s could not resolve target: %s",
+                author_name,
+                autojoin.get("reason", "unknown reason"),
+            )
+
+
+def _ensure_discord_handlers_registered() -> None:
+    global _discord_handlers_registered
+    if _discord_handlers_registered:
+        return
+    _discord_adapter.register_inbound_handler(_handle_discord_inbound)
+    _discord_handlers_registered = True
 
 
 def _tool_names() -> list[str]:
@@ -768,6 +839,7 @@ _init_chat_db()
 
 @asynccontextmanager
 async def _lifespan(_: FastAPI):
+    _ensure_discord_handlers_registered()
     if _tapo_hub is not None:
         _tapo_hub.start()
     _voice_transport.start()
