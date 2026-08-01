@@ -6,6 +6,15 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 VENV_PY="$ROOT_DIR/.venv/bin/python"
+DISPLAY_TTY="${KITEZH_DISPLAY_TTY:-}"
+
+if [[ -z "$DISPLAY_TTY" && -w /dev/tty1 ]]; then
+  DISPLAY_TTY=/dev/tty1
+fi
+
+if [[ -n "$DISPLAY_TTY" && -w "$DISPLAY_TTY" ]]; then
+  exec >"$DISPLAY_TTY" 2>"$DISPLAY_TTY"
+fi
 
 if [[ ! -x "$VENV_PY" ]]; then
   echo "error: python virtualenv not found at $VENV_PY" >&2

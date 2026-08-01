@@ -36,6 +36,7 @@ User=mini
 Group=mini
 WorkingDirectory=/home/mini/KITEZH
 Environment=KITEZH_WORKSPACE=/home/mini/KITEZH/workspace
+Environment=KITEZH_DISPLAY_TTY=/dev/tty1
 ExecStart=/home/mini/KITEZH/scripts/run_display_terminal.sh
 Restart=always
 RestartSec=2
@@ -53,23 +54,8 @@ sudo systemctl enable --now kitezh-face-tty
 sudo systemctl status kitezh-face-tty --no-pager
 ```
 
-For rendering on the physical monitor console, run it on `tty1`:
-
-```bash
-sudo systemctl edit kitezh-face-tty
-```
-
-Add:
-
-```ini
-[Service]
-StandardInput=tty
-StandardOutput=tty
-TTYPath=/dev/tty1
-TTYReset=yes
-TTYVHangup=yes
-TTYVTDisallocate=yes
-```
+The launcher now binds its output directly to `/dev/tty1` when available, so the face
+is visible on the attached monitor without a separate systemd override.
 
 Tail the live terminal face output:
 
