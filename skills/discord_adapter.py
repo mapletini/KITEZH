@@ -34,6 +34,7 @@ from skills.custom_stt_engine import CustomSpeechEngine
 logger = logging.getLogger(__name__)
 
 _REST_BASE = "https://discord.com/api/v10"
+_MAX_DISCORD_MESSAGE_CHARS = 2000
 
 # Regex for extracting a user ID from a Discord mention like <@123> or <@!123>.
 _MENTION_RE = re.compile(r"<@!?(\d+)>")
@@ -697,7 +698,12 @@ class DiscordAdapter:
                 continue
 
             if attempts >= self._runtime.max_send_attempts:
-                logger.warning("Discord action dropped after %d attempts: %s", attempts, queued.action.action)
+                logger.warning(
+                    "Discord action dropped after %d attempts: %s (%s)",
+                    attempts,
+                    queued.action.action,
+                    failure or "unknown error",
+                )
                 continue
 
             delay = min(
@@ -955,16 +961,39 @@ class DiscordAdapter:
         name = action.action
         payload = action.payload
         if name == "send_message":
-            return self._request("POST", f"/channels/{payload['channel_id']}/messages", {"content": payload["content"]})
+            channel_id = str(payload["channel_id"])
+            chunks = self._message_chunks(payload.get("content", ""))
+            result: dict[str, Any] = {"ok": True}
+            for chunk in chunks:
+                result = self._request("POST", f"/channels/{channel_id}/messages", {"content": chunk})
+            return result
         if name == "reply_message":
-            return self._request(
-                "POST",
-                f"/channels/{payload['channel_id']}/messages",
-                {
-                    "content": payload["content"],
-                    "message_reference": {"message_id": payload["message_id"]},
-                },
-            )
+            channel_id = str(payload["channel_id"])
+            message_id = str(payload["message_id"])
+            chunks = self._message_chunks(payload.get("content", ""))
+            first_chunk = chunks[0]
+            remaining_chunks = chunks[1:]
+            try:
+                result = self._request(
+                    "POST",
+                    f"/channels/{channel_id}/messages",
+                    {
+                        "content": first_chunk,
+                        "message_reference": {"message_id": message_id},
+                    },
+                )
+            except RuntimeError as exc:
+                # Some contexts reject message_reference (permissions/unknown message);
+                # fall back to a plain send so the user still gets a response.
+                logger.warning("Discord reply_message failed; falling back to send_message: %s", exc)
+                result = self._request(
+                    "POST",
+                    f"/channels/{channel_id}/messages",
+                    {"content": first_chunk},
+                )
+            for chunk in remaining_chunks:
+                result = self._request("POST", f"/channels/{channel_id}/messages", {"content": chunk})
+            return result
         if name == "typing":
             return self._request("POST", f"/channels/{payload['channel_id']}/typing")
         if name == "add_reaction":
@@ -1023,6 +1052,32 @@ class DiscordAdapter:
             raise RuntimeError(f"Discord HTTP {exc.code}: {msg}") from exc
         except urllib.error.URLError as exc:
             raise RuntimeError(f"Discord request failed: {exc}") from exc
+
+    @staticmethod
+    def _message_chunks(content: Any) -> list[str]:
+        """Split outbound content into Discord-safe message chunks (<=2000 chars)."""
+        text = str(content or "").strip()
+        if not text:
+            return ["(empty response)"]
+        if len(text) <= _MAX_DISCORD_MESSAGE_CHARS:
+            return [text]
+
+        chunks: list[str] = []
+        remaining = text
+        while remaining:
+            if len(remaining) <= _MAX_DISCORD_MESSAGE_CHARS:
+                chunks.append(remaining)
+                break
+            cut = remaining.rfind("\n", 0, _MAX_DISCORD_MESSAGE_CHARS + 1)
+            if cut <= 0:
+                cut = remaining.rfind(" ", 0, _MAX_DISCORD_MESSAGE_CHARS + 1)
+            if cut <= 0:
+                cut = _MAX_DISCORD_MESSAGE_CHARS
+            piece = remaining[:cut].strip()
+            if piece:
+                chunks.append(piece)
+            remaining = remaining[cut:].lstrip()
+        return chunks or [text[:_MAX_DISCORD_MESSAGE_CHARS]]
 
     def _ensure_enabled(self) -> None:
         if not self.is_enabled():
