@@ -36,6 +36,13 @@ def _video_driver_candidates() -> list[str]:
     return candidates
 
 
+def _env_flag(name: str, default: bool = False) -> bool:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
 def _emotion_color(label: str) -> tuple[int, int, int]:
     return {
         "joy": (255, 210, 80),
@@ -55,13 +62,27 @@ def run_framebuffer_face(refresh_seconds: float | None = None, state_path: str |
 
     attempted: list[str] = []
     screen = None
+    enable_scaled = _env_flag("KITEZH_DISPLAY_SCALED", default=False)
+    enable_vsync = _env_flag("KITEZH_DISPLAY_VSYNC", default=False)
     for driver in _video_driver_candidates():
         os.environ["SDL_VIDEODRIVER"] = driver
         attempted.append(driver)
         try:
             pygame.display.quit()
             pygame.display.init()
-            screen = pygame.display.set_mode((0, 0), pygame.FULLSCREEN)
+            flags = pygame.FULLSCREEN
+            # Some GPU/driver stacks (notably headless X11 + modeset) can produce
+            # severe artifacts with SCALED. Keep it opt-in.
+            if enable_scaled and hasattr(pygame, "SCALED"):
+                flags |= pygame.SCALED
+            if enable_vsync:
+                try:
+                    screen = pygame.display.set_mode((0, 0), flags, vsync=1)
+                except TypeError:
+                    # Older pygame signatures may not support the vsync kwarg.
+                    screen = pygame.display.set_mode((0, 0), flags)
+            else:
+                screen = pygame.display.set_mode((0, 0), flags)
             logger.info("Framebuffer face started with SDL_VIDEODRIVER=%s", driver)
             break
         except pygame.error as exc:
@@ -75,6 +96,7 @@ def run_framebuffer_face(refresh_seconds: float | None = None, state_path: str |
         return 1
 
     pygame.init()
+    pygame.mouse.set_visible(False)
     clock = pygame.time.Clock()
     interval = refresh_seconds or config.DISPLAY_REFRESH_SECONDS
     last_poll = 0.0
@@ -131,7 +153,7 @@ def run_framebuffer_face(refresh_seconds: float | None = None, state_path: str |
             )
 
             pygame.display.flip()
-            clock.tick(30)
+            clock.tick(60)
         except Exception as exc:
             logger.exception("Framebuffer face loop error; continuing: %s", exc)
             time.sleep(0.5)
