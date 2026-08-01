@@ -12,6 +12,20 @@ _HIGH_INTENSITY_THRESHOLD = 0.55
 _MEDIUM_INTENSITY_THRESHOLD = 0.25
 
 
+def _screen_line(state: dict[str, Any]) -> str:
+    screen = state.get("screen", {}) if isinstance(state.get("screen", {}), dict) else {}
+    mode = str(screen.get("mode", "face"))
+    url = str(screen.get("url", "/face"))
+    updated_by = str(screen.get("updated_by", "system"))
+    if mode == "url":
+        target = url
+    elif mode == "ui":
+        target = "workspace ui"
+    else:
+        target = "face"
+    return f"screen   {mode[:8]:<8} → {target[:22]:<22} ({updated_by[:8]})"
+
+
 def _ansi_color(label: str) -> str:
     return {
         "joy": "\033[38;5;220m",
@@ -30,6 +44,7 @@ def render_terminal_face(state: dict[str, Any]) -> str:
     intensity = float(emotion.get("intensity", 0.0))
     narrative = str(state.get("narrative", "Kai is quiet but present."))
     strongest_need = str(emotion.get("strongest_need", "connection"))
+    message = str(state.get("message", ""))
     pad = emotion.get("pad", [0.0, 0.0, 0.0])
     pad_text = str([round(float(v), 2) for v in pad])
     eyes = (
@@ -52,8 +67,10 @@ def render_terminal_face(state: dict[str, Any]) -> str:
         f"║ emotion   {label[:28]:<28}║\n"
         f"║ need      {strongest_need[:28]:<28}║\n"
         f"║ pad       {pad_text[:28]:<28}║\n"
+        f"║ {_screen_line(state)[:38]:<38} ║\n"
         "╠════════════════════════════════════════╣\n"
         f"║ {narrative[:38]:<38} ║\n"
+        f"║ {message[:38]:<38} ║\n"
         "╚════════════════════════════════════════╝\n"
         f"{reset}"
     )

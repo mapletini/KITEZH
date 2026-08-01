@@ -1,42 +1,32 @@
 # Display Monitor Setup
 
-This guide runs Kai's local face renderer on a monitor physically attached to the server.
+This guide runs Kai's non-browser face renderer on a monitor physically attached to the server.
 
-For full-screen browser kiosk mode, use `/monitor`. That route follows Kai's live
-scene selection from display state and can switch between face/UI/custom URL.
+For a headless machine, the recommended path is a tty1 service that opens Kai's terminal face directly.
+It avoids browser/snap/XDG session issues entirely while still reading the shared display state.
 
-## Headless Server Recommendation (NVIDIA-friendly)
+## Recommended Headless Setup
 
-When the machine is "headless" (no desktop session), the most reliable monitor path is
-an Xorg kiosk process that opens `/monitor` on vt1.
-
-Install runtime packages:
+Install the minimal runtime dependency set:
 
 ```bash
 sudo apt update
-sudo apt install -y xinit xserver-xorg chromium-browser x11-xserver-utils xdg-utils dbus-x11
-```
-
-If Chromium is installed as a snap and exits with a cgroup error like
-`not a snap cgroup for tag snap.chromium.chromium`, use a non-snap browser for kiosk mode:
-
-```bash
-sudo apt install -y epiphany-browser
+sudo apt install -y x11-xserver-utils
 ```
 
 Launch manually:
 
 ```bash
 cd /home/mini/KITEZH
-chmod +x scripts/run_monitor_kiosk.sh
-./scripts/run_monitor_kiosk.sh
+chmod +x scripts/run_display_terminal.sh
+./scripts/run_display_terminal.sh
 ```
 
-Create `/etc/systemd/system/kitezh-monitor-kiosk.service`:
+Create `/etc/systemd/system/kitezh-face-tty.service`:
 
 ```ini
 [Unit]
-Description=Kitezh Monitor Kiosk (Xorg + Chromium)
+Description=Kitezh Terminal Face (TTY)
 After=network.target kitezh.service
 Requires=kitezh.service
 
@@ -46,38 +36,51 @@ User=mini
 Group=mini
 WorkingDirectory=/home/mini/KITEZH
 Environment=KITEZH_WORKSPACE=/home/mini/KITEZH/workspace
-Environment=KITEZH_MONITOR_URL=http://127.0.0.1:7860/monitor
-Environment=KITEZH_MONITOR_BROWSER=epiphany-browser
-Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/snap/bin
-Environment=KITEZH_MONITOR_LOG=/tmp/kitezh-monitor-kiosk.log
-ExecStart=/home/mini/KITEZH/scripts/run_monitor_kiosk.sh
+ExecStart=/home/mini/KITEZH/scripts/run_display_terminal.sh
 Restart=always
-RestartSec=3
+RestartSec=2
 LimitNOFILE=65535
 
 [Install]
 WantedBy=multi-user.target
 ```
 
-Enable:
+Enable it:
 
 ```bash
 sudo systemctl daemon-reload
-sudo systemctl enable --now kitezh-monitor-kiosk
-sudo systemctl status kitezh-monitor-kiosk --no-pager
+sudo systemctl enable --now kitezh-face-tty
+sudo systemctl status kitezh-face-tty --no-pager
 ```
 
-Tail kiosk-specific logs:
+For rendering on the physical monitor console, run it on `tty1`:
 
 ```bash
-tail -f /tmp/kitezh-monitor-kiosk.log
+sudo systemctl edit kitezh-face-tty
 ```
 
-Verify the active service environment:
+Add:
+
+```ini
+[Service]
+StandardInput=tty
+StandardOutput=tty
+TTYPath=/dev/tty1
+TTYReset=yes
+TTYVHangup=yes
+TTYVTDisallocate=yes
+```
+
+Tail the live terminal face output:
 
 ```bash
-systemctl show kitezh-monitor-kiosk -p Environment
+sudo journalctl -u kitezh-face-tty -f
 ```
+
+## Optional Legacy Browser Mode
+
+If you still want the browser-based monitor, keep `/monitor` and the kiosk docs below.
+This path is now optional and should only be used if you specifically need HTML/CSS rendering.
 
 ## 1) Install face dependency
 
@@ -222,9 +225,9 @@ Quick inspect:
 jq '.version, .mode, .emotion.label, .emotion.intensity, .narrative' /home/mini/KITEZH/workspace/kai_display_state.json
 ```
 
-## 5) Kai-controlled monitor scenes
+## 5) Kai-controlled screen state
 
-Kai (or an admin on LAN) can switch the active monitor scene:
+Kai (or an admin on LAN) can switch the screen state used by the terminal face:
 
 ```bash
 # Face scene
@@ -243,7 +246,7 @@ curl -sS -X POST http://127.0.0.1:7860/api/kai/display/scene \
   -d '{"mode":"url","url":"/face"}' | jq
 ```
 
-External absolute URLs are blocked by default. To allow them:
+External absolute URLs are blocked by default. To allow them for future screen routing:
 
 ```env
 KITEZH_DISPLAY_ALLOW_EXTERNAL_URLS=1

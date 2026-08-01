@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Start Kai's terminal face renderer (no SDL/pygame required).
-# Best fallback for headless Linux servers with a monitor on tty1.
+# Start Kai's terminal face renderer (no browser, no SDL/pygame required).
+# Recommended display path for headless Linux servers with a monitor on tty1.
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 VENV_PY="$ROOT_DIR/.venv/bin/python"
