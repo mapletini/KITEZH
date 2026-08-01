@@ -102,6 +102,11 @@ def run_framebuffer_face(refresh_seconds: float | None = None, state_path: str |
     last_poll = 0.0
     state = load_display_state(state_path)
 
+    # Draw to a fixed software canvas first, then scale to the real output size.
+    # This avoids direct presentation artifacts on some X11/modeset combinations.
+    logical_w, logical_h = 1280, 720
+    canvas = pygame.Surface((logical_w, logical_h)).convert()
+
     running = True
     while running:
         now = time.time()
@@ -121,36 +126,44 @@ def run_framebuffer_face(refresh_seconds: float | None = None, state_path: str |
             pad = emotion.get("pad", [0.0, 0.0, 0.0])
             color = _emotion_color(label)
             w, h = screen.get_size()
-            screen.fill((6, 10, 18))
+
+            cw, ch = canvas.get_size()
+            canvas.fill((6, 10, 18))
 
             breath = 1.0 + (0.08 * math.sin(now * 1.5))
-            radius = int(min(w, h) * (0.18 + intensity * 0.12) * breath)
-            pygame.draw.circle(screen, color, (w // 2, h // 2), radius)
-            pygame.draw.circle(screen, (10, 14, 24), (w // 2, h // 2), max(20, radius // 2))
+            radius = int(min(cw, ch) * (0.18 + intensity * 0.12) * breath)
+            pygame.draw.circle(canvas, color, (cw // 2, ch // 2), radius)
+            pygame.draw.circle(canvas, (10, 14, 24), (cw // 2, ch // 2), max(20, radius // 2))
 
-            eye_offset_x = int(w * 0.12)
-            eye_y = int(h * (0.42 + (0.05 * (0.5 - float(pad[1])))))
+            eye_offset_x = int(cw * 0.12)
+            eye_y = int(ch * (0.42 + (0.05 * (0.5 - float(pad[1])))))
             eye_radius = max(12, int(radius * 0.18))
             for direction in (-1, 1):
-                pygame.draw.circle(screen, (240, 248, 255), (w // 2 + direction * eye_offset_x, eye_y), eye_radius)
+                pygame.draw.circle(canvas, (240, 248, 255), (cw // 2 + direction * eye_offset_x, eye_y), eye_radius)
                 pygame.draw.circle(
-                    screen,
+                    canvas,
                     (16, 20, 30),
-                    (w // 2 + direction * eye_offset_x, eye_y),
+                    (cw // 2 + direction * eye_offset_x, eye_y),
                     max(4, int(eye_radius * 0.4)),
                 )
 
             mouth_width = int(radius * 0.7)
-            mouth_y = int(h * 0.62)
+            mouth_y = int(ch * 0.62)
             mouth_curve = int((float(pad[0]) - 0.1) * 40)
             pygame.draw.arc(
-                screen,
+                canvas,
                 (240, 248, 255),
-                pygame.Rect((w // 2) - mouth_width // 2, mouth_y - 25, mouth_width, 50 + abs(mouth_curve)),
+                pygame.Rect((cw // 2) - mouth_width // 2, mouth_y - 25, mouth_width, 50 + abs(mouth_curve)),
                 math.radians(20 if mouth_curve >= 0 else 200),
                 math.radians(160 if mouth_curve >= 0 else 340),
                 4,
             )
+
+            if (w, h) != (cw, ch):
+                scaled = pygame.transform.smoothscale(canvas, (w, h))
+                screen.blit(scaled, (0, 0))
+            else:
+                screen.blit(canvas, (0, 0))
 
             pygame.display.flip()
             clock.tick(60)
