@@ -351,13 +351,6 @@ if (( HEADLESS_LINUX == 1 )); then
         info "Kai can take over the HDMI monitor at boot via a systemd framebuffer service on tty2."
         if ask_yn "Install and enable the framebuffer face auto-start service?" "y"; then
             install_framebuffer_service
-            if ask_yn "Also disable login prompt on tty1 (optional, prevents fallback login text)?" "n"; then
-                if sudo systemctl disable --now getty@tty1.service; then
-                    ok "Disabled login prompt on tty1 (getty@tty1.service)."
-                else
-                    warn "Could not disable getty@tty1.service. You can run it manually later."
-                fi
-            fi
         fi
     else
         warn "systemctl not found — skipping optional boot-time framebuffer service setup."
