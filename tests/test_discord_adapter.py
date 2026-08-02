@@ -573,6 +573,91 @@ class TestDiscordAdapter(unittest.TestCase):
 
         self.assertFalse(ok)
 
+    def test_process_audit_log_entry_ignores_none_target(self) -> None:
+        import tempfile
+        from unittest.mock import patch
+
+        runtime = DiscordRuntimeConfig(
+            enabled=True,
+            bot_token="token",
+            operator_user_id="",
+            recent_messages_limit=50,
+            max_send_attempts=3,
+            retry_base_seconds=0.01,
+            retry_max_seconds=0.02,
+            inbound_poll_seconds=0.1,
+            inbound_channel_ids=(),
+            bot_user_id="",
+            gateway_enabled=False,
+            voice_enabled=False,
+            voice_autojoin_on_mention=False,
+            voice_single_active_channel=True,
+            voice_buffer_seconds=30,
+            audit_retention_days=30,
+            signing_secret="secret",
+            log_channel_moderation="mod-chan",
+        )
+        with tempfile.TemporaryDirectory() as tmp, patch("config.WORKSPACE_PATH", tmp):
+            adapter = DiscordAdapter(runtime)
+            sent: list[OutboundAction] = []
+
+            def capture(action: OutboundAction) -> dict:
+                sent.append(action)
+                return {"ok": True, "queued": True, "task_id": "x", "action": action.action, "payload": action.payload}
+
+            adapter.enqueue_action = capture  # type: ignore[method-assign]
+            ok = adapter.process_audit_log_entry({"action_type": 22, "user_id": "123", "target_id": None})
+
+        self.assertTrue(ok)
+        self.assertEqual(len(sent), 1)
+        content = sent[0].payload["content"]
+        self.assertNotIn("<@None>", content)
+        self.assertNotIn("Target:", content)
+
+    def test_process_audit_log_entry_non_user_target_uses_id_text(self) -> None:
+        import tempfile
+        from unittest.mock import patch
+
+        runtime = DiscordRuntimeConfig(
+            enabled=True,
+            bot_token="token",
+            operator_user_id="",
+            recent_messages_limit=50,
+            max_send_attempts=3,
+            retry_base_seconds=0.01,
+            retry_max_seconds=0.02,
+            inbound_poll_seconds=0.1,
+            inbound_channel_ids=(),
+            bot_user_id="",
+            gateway_enabled=False,
+            voice_enabled=False,
+            voice_autojoin_on_mention=False,
+            voice_single_active_channel=True,
+            voice_buffer_seconds=30,
+            audit_retention_days=30,
+            signing_secret="secret",
+            log_channel_moderation="mod-chan",
+        )
+        with tempfile.TemporaryDirectory() as tmp, patch("config.WORKSPACE_PATH", tmp):
+            adapter = DiscordAdapter(runtime)
+            sent: list[OutboundAction] = []
+
+            def capture(action: OutboundAction) -> dict:
+                sent.append(action)
+                return {"ok": True, "queued": True, "task_id": "x", "action": action.action, "payload": action.payload}
+
+            adapter.enqueue_action = capture  # type: ignore[method-assign]
+            ok = adapter.process_audit_log_entry(
+                {"action_type": 1, "user_id": "123", "target_id": "987654321", "reason": "updated settings"}
+            )
+
+        self.assertTrue(ok)
+        self.assertEqual(len(sent), 1)
+        content = sent[0].payload["content"]
+        self.assertIn("Action #1", content)
+        self.assertIn("Target ID: 987654321", content)
+        self.assertNotIn("Target: <@987654321>", content)
+
 
 if __name__ == "__main__":
     unittest.main()

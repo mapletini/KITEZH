@@ -54,10 +54,27 @@ _AUDIT_ACTION_NAMES: dict[int, str] = {
     28: "Bot Add",
 }
 
+# Audit events where target_id is expected to be a user/member ID.
+_AUDIT_USER_TARGET_ACTIONS: set[int] = {
+    20,  # Member Kick
+    22,  # Member Ban Add
+    23,  # Member Ban Remove
+    24,  # Member Update
+    25,  # Member Role Update
+    26,  # Member Move
+    27,  # Member Disconnect
+}
+
 
 def _display_name(user: dict[str, Any]) -> str:
     """Return the best available display name from a Discord user object."""
     return str(user.get("global_name") or user.get("username") or "Unknown User")
+
+
+def _snowflake_or_empty(value: Any) -> str:
+    """Return a valid Discord snowflake string or an empty string."""
+    text = str(value or "").strip()
+    return text if text.isdigit() else ""
 
 
 def _b64url(data: bytes) -> str:
@@ -659,15 +676,17 @@ class DiscordAdapter:
             return False
         action_type = int(payload.get("action_type", 0) or 0)
         action_name = _AUDIT_ACTION_NAMES.get(action_type, f"Action #{action_type}")
-        moderator_id = str(payload.get("user_id", "")).strip()
-        target_id = str(payload.get("target_id", "")).strip()
+        moderator_id = _snowflake_or_empty(payload.get("user_id"))
+        target_id = _snowflake_or_empty(payload.get("target_id"))
         reason = str(payload.get("reason") or "").strip() or "No reason provided"
 
         parts = [f"\U0001f528 **{action_name}**"]
         if moderator_id:
             parts.append(f"By: <@{moderator_id}>")
-        if target_id:
+        if target_id and action_type in _AUDIT_USER_TARGET_ACTIONS:
             parts.append(f"Target: <@{target_id}>")
+        elif target_id:
+            parts.append(f"Target ID: {target_id}")
         parts.append(f"Reason: {reason}")
         self.send_message(self._runtime.log_channel_moderation, " | ".join(parts))
         return True
