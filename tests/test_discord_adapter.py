@@ -23,6 +23,7 @@ class TestDiscordAdapter(unittest.TestCase):
             inbound_poll_seconds=0.1,
             inbound_channel_ids=("chan-1",),
             bot_user_id="999",
+            ignored_user_ids=("1077855993242857513",),
             gateway_enabled=False,
             voice_enabled=True,
             voice_autojoin_on_mention=True,
@@ -423,6 +424,49 @@ class TestDiscordAdapter(unittest.TestCase):
         self.assertIn("join-chan", send_channels)
         self.assertIn("gen-chan", send_channels)
 
+    def test_process_member_join_ignores_configured_user_ids(self) -> None:
+        import tempfile
+        from unittest.mock import patch
+
+        runtime = DiscordRuntimeConfig(
+            enabled=True,
+            bot_token="token",
+            operator_user_id="",
+            recent_messages_limit=50,
+            max_send_attempts=3,
+            retry_base_seconds=0.01,
+            retry_max_seconds=0.02,
+            inbound_poll_seconds=0.1,
+            inbound_channel_ids=(),
+            bot_user_id="",
+            gateway_enabled=False,
+            voice_enabled=False,
+            voice_autojoin_on_mention=False,
+            voice_single_active_channel=True,
+            voice_buffer_seconds=30,
+            audit_retention_days=30,
+            signing_secret="secret",
+            log_channel_joins="join-chan",
+            log_channel_general="gen-chan",
+            newcomer_role_id="role-99",
+            ignored_user_ids=("1077855993242857513",),
+        )
+        with tempfile.TemporaryDirectory() as tmp, patch("config.WORKSPACE_PATH", tmp):
+            adapter = DiscordAdapter(runtime)
+            sent: list[OutboundAction] = []
+
+            def capture(action: OutboundAction) -> dict:
+                sent.append(action)
+                return {"ok": True, "queued": True, "task_id": "x", "action": action.action, "payload": action.payload}
+
+            adapter.enqueue_action = capture  # type: ignore[method-assign]
+            ok = adapter.process_member_join(
+                {"guild_id": "g1", "user": {"id": "1077855993242857513", "username": "The Audio Archive"}}
+            )
+
+        self.assertFalse(ok)
+        self.assertEqual(sent, [])
+
     def test_process_member_join_skips_role_when_unconfigured(self) -> None:
         import tempfile
         from unittest.mock import patch
@@ -501,6 +545,46 @@ class TestDiscordAdapter(unittest.TestCase):
         self.assertIn("leave-chan", channels)
         self.assertIn("gen-chan", channels)
 
+    def test_process_member_remove_ignores_configured_user_ids(self) -> None:
+        import tempfile
+        from unittest.mock import patch
+
+        runtime = DiscordRuntimeConfig(
+            enabled=True,
+            bot_token="token",
+            operator_user_id="",
+            recent_messages_limit=50,
+            max_send_attempts=3,
+            retry_base_seconds=0.01,
+            retry_max_seconds=0.02,
+            inbound_poll_seconds=0.1,
+            inbound_channel_ids=(),
+            bot_user_id="",
+            gateway_enabled=False,
+            voice_enabled=False,
+            voice_autojoin_on_mention=False,
+            voice_single_active_channel=True,
+            voice_buffer_seconds=30,
+            audit_retention_days=30,
+            signing_secret="secret",
+            log_channel_leaves="leave-chan",
+            log_channel_general="gen-chan",
+            ignored_user_ids=("1077855993242857513",),
+        )
+        with tempfile.TemporaryDirectory() as tmp, patch("config.WORKSPACE_PATH", tmp):
+            adapter = DiscordAdapter(runtime)
+            sent: list[OutboundAction] = []
+
+            def capture(action: OutboundAction) -> dict:
+                sent.append(action)
+                return {"ok": True, "queued": True, "task_id": "x", "action": action.action, "payload": action.payload}
+
+            adapter.enqueue_action = capture  # type: ignore[method-assign]
+            ok = adapter.process_member_remove({"user": {"id": "1077855993242857513", "username": "The Audio Archive"}})
+
+        self.assertFalse(ok)
+        self.assertEqual(sent, [])
+
     def test_process_audit_log_entry_posts_to_moderation_channel(self) -> None:
         import tempfile
         from unittest.mock import patch
@@ -543,6 +627,99 @@ class TestDiscordAdapter(unittest.TestCase):
         self.assertEqual(sent[0].payload["channel_id"], "mod-chan")
         self.assertIn("Member Ban Add", sent[0].payload["content"])
         self.assertIn("spam", sent[0].payload["content"])
+
+    def test_process_audit_log_entry_ignores_configured_target(self) -> None:
+        import tempfile
+        from unittest.mock import patch
+
+        runtime = DiscordRuntimeConfig(
+            enabled=True,
+            bot_token="token",
+            operator_user_id="",
+            recent_messages_limit=50,
+            max_send_attempts=3,
+            retry_base_seconds=0.01,
+            retry_max_seconds=0.02,
+            inbound_poll_seconds=0.1,
+            inbound_channel_ids=(),
+            bot_user_id="",
+            gateway_enabled=False,
+            voice_enabled=False,
+            voice_autojoin_on_mention=False,
+            voice_single_active_channel=True,
+            voice_buffer_seconds=30,
+            audit_retention_days=30,
+            signing_secret="secret",
+            log_channel_moderation="mod-chan",
+            ignored_user_ids=("1077855993242857513",),
+        )
+        with tempfile.TemporaryDirectory() as tmp, patch("config.WORKSPACE_PATH", tmp):
+            adapter = DiscordAdapter(runtime)
+            sent: list[OutboundAction] = []
+
+            def capture(action: OutboundAction) -> dict:
+                sent.append(action)
+                return {"ok": True, "queued": True, "task_id": "x", "action": action.action, "payload": action.payload}
+
+            adapter.enqueue_action = capture  # type: ignore[method-assign]
+            ok = adapter.process_audit_log_entry(
+                {
+                    "action_type": 22,
+                    "user_id": "mod1",
+                    "target_id": "1077855993242857513",
+                    "reason": "spam",
+                }
+            )
+
+        self.assertFalse(ok)
+        self.assertEqual(sent, [])
+
+    def test_handle_mod_command_help_replies_with_summary(self) -> None:
+        import tempfile
+        from unittest.mock import patch
+
+        runtime = DiscordRuntimeConfig(
+            enabled=True,
+            bot_token="token",
+            operator_user_id="",
+            recent_messages_limit=50,
+            max_send_attempts=3,
+            retry_base_seconds=0.01,
+            retry_max_seconds=0.02,
+            inbound_poll_seconds=0.1,
+            inbound_channel_ids=(),
+            bot_user_id="",
+            gateway_enabled=False,
+            voice_enabled=False,
+            voice_autojoin_on_mention=False,
+            voice_single_active_channel=True,
+            voice_buffer_seconds=30,
+            audit_retention_days=30,
+            signing_secret="secret",
+        )
+        with tempfile.TemporaryDirectory() as tmp, patch("config.WORKSPACE_PATH", tmp):
+            adapter = DiscordAdapter(runtime)
+            sent: list[OutboundAction] = []
+
+            def capture(action: OutboundAction) -> dict:
+                sent.append(action)
+                return {"ok": True, "queued": True, "task_id": "x", "action": action.action, "payload": action.payload}
+
+            adapter.enqueue_action = capture  # type: ignore[method-assign]
+            adapter._handle_mod_command(
+                {
+                    "event_type": "message_create",
+                    "content": "!help",
+                    "member_roles": ["1531687553747648532"],
+                    "channel_id": "mod-chan",
+                    "message_id": "msg-1",
+                }
+            )
+
+        self.assertEqual(len(sent), 1)
+        self.assertEqual(sent[0].action, "reply_message")
+        self.assertIn("Moderation commands", sent[0].payload["content"])
+        self.assertIn("!ban @user [reason]", sent[0].payload["content"])
 
     def test_process_audit_log_entry_noop_without_channel(self) -> None:
         import tempfile

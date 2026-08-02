@@ -110,6 +110,7 @@ class DiscordRuntimeConfig:
     log_channel_joins: str = ""
     log_channel_leaves: str = ""
     newcomer_role_id: str = ""
+    ignored_user_ids: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -169,6 +170,7 @@ class DiscordAdapter:
                 inbound_poll_seconds=config.DISCORD_INBOUND_POLL_SECONDS,
                 inbound_channel_ids=config.DISCORD_INBOUND_CHANNEL_IDS,
                 bot_user_id=config.DISCORD_BOT_USER_ID,
+                ignored_user_ids=config.DISCORD_IGNORED_USER_IDS,
                 gateway_enabled=config.DISCORD_GATEWAY_ENABLED,
                 voice_enabled=config.DISCORD_VOICE_ENABLED,
                 voice_autojoin_on_mention=config.DISCORD_VOICE_AUTOJOIN_ON_MENTION,
@@ -640,6 +642,8 @@ class DiscordAdapter:
         username = _display_name(user)
         if not guild_id or not user_id:
             return False
+        if user_id in self._runtime.ignored_user_ids:
+            return False
 
         if self._runtime.newcomer_role_id:
             self.add_member_role(guild_id, user_id, self._runtime.newcomer_role_id)
@@ -660,6 +664,8 @@ class DiscordAdapter:
         username = _display_name(user)
         if not user_id:
             return False
+        if user_id in self._runtime.ignored_user_ids:
+            return False
 
         msg = f"\U0001f6aa **{username}** (`{user_id}`) left the server."
         if self._runtime.log_channel_leaves:
@@ -679,6 +685,8 @@ class DiscordAdapter:
         moderator_id = _snowflake_or_empty(payload.get("user_id"))
         target_id = _snowflake_or_empty(payload.get("target_id"))
         reason = str(payload.get("reason") or "").strip() or "No reason provided"
+        if target_id and target_id in self._runtime.ignored_user_ids:
+            return False
 
         parts = [f"\U0001f528 **{action_name}**"]
         if moderator_id:
@@ -864,6 +872,13 @@ class DiscordAdapter:
         elif channel_id:
             self.enqueue_action(OutboundAction("send_message", {"channel_id": channel_id, "content": content}))
 
+    @staticmethod
+    def _moderation_help_text() -> str:
+        return (
+            "🛡️ Moderation commands: `!kick @user [reason]`, `!warn @user [reason]`, `"
+            "`!timeout @user <minutes> [reason]`, `!ban @user [reason]` (admin only)."
+        )
+
     def _handle_mod_command(self, event: dict[str, Any]) -> None:
         """Dispatch !ban / !kick / !timeout / !warn commands for authorised members."""
         if str(event.get("event_type", "")) != "message_create":
@@ -885,6 +900,10 @@ class DiscordAdapter:
         channel_id = str(event.get("channel_id", "")).strip()
         guild_id = str(event.get("guild_id", "")).strip()
         message_id = str(event.get("message_id", "")).strip()
+
+        if content.lower().startswith("!help"):
+            self._enqueue_reply(channel_id, message_id, self._moderation_help_text())
+            return
 
         # ---- !ban -------------------------------------------------------
         if content.lower().startswith("!ban"):

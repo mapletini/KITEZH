@@ -217,6 +217,11 @@ DISCORD_BOT_TOKEN: str = _env("KITEZH_DISCORD_BOT_TOKEN", default="")
 #: Bot user ID for reliable mention detection in inbound message events.
 DISCORD_BOT_USER_ID: str = _env("KITEZH_DISCORD_BOT_USER_ID", default="")
 
+#: Discord user IDs whose messages should be ignored by inbound processing.
+DISCORD_IGNORED_USER_IDS: tuple[str, ...] = _env_csv("KITEZH_DISCORD_IGNORED_USER_IDS") or (
+    "1077855993242857513",
+)
+
 #: Operator Discord user ID used for runtime alerts (voice disable, etc).
 DISCORD_OPERATOR_USER_ID: str = _env("KITEZH_DISCORD_OPERATOR_USER_ID", default="")
 
